@@ -1,0 +1,10 @@
+# Rescued client data must NEVER be committed
+rescued_files/
+*.part
+
+# Machine-specific configuration
+refuge_config.json
+
+# Python
+__pycache__/
+*.pyc

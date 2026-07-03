@@ -1,0 +1,8 @@
+# Shell scripts must stay LF or they break on Linux
+*.sh text eol=lf
+
+# Batch files must stay CRLF for cmd.exe
+*.bat text eol=crlf
+
+# Everything else: normalize in repo, native endings on checkout
+* text=auto
