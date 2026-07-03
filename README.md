@@ -58,6 +58,29 @@ If every method fails, the dashboard log tells you why.
 Settings persist to `refuge_config.json` next to the app, so they travel with
 the USB drive.
 
+## Execution safeguard (quarantine)
+
+Files rescued from a failing machine may be infected, so by default the
+rescue folder is treated as a quarantine zone ("Block execution of rescued
+files" in Settings):
+
+- **Windows:** a deny-execute ACL is applied to the rescue folder and
+  inherited by every file in it — Windows refuses to launch executables
+  stored there (Access denied), while reading, copying, and browsing work
+  normally. Each saved file is also tagged with Mark-of-the-Web
+  (Internet zone), so SmartScreen still warns if a file is copied elsewhere
+  and run. Requires the rescue folder to be on an NTFS drive; on FAT32/exFAT
+  the dashboard logs a warning instead.
+- **Linux:** execute permission is stripped from every saved file. For a
+  kernel-enforced guarantee, mount the rescue drive with the `noexec` option,
+  e.g. `sudo mount -o noexec,nosuid,nodev /dev/sdb1 /mnt/rescue`.
+
+Turning the option off removes the folder ACL. To remove it manually:
+`icacls "<rescue folder>" /remove:d *S-1-1-0`
+
+This blocks in-place execution; it does **not** disinfect anything. Scan
+rescued files with AV before restoring them to a rebuilt machine.
+
 ## Reliability details
 
 - Uploads stream to disk in 64 KiB chunks — multi-GB files are fine and never

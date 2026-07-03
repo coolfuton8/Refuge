@@ -187,6 +187,7 @@ class RefugeApp:
             "hotspot_password": tk.StringVar(value=self.config.hotspot_password),
             "auto_hotspot": tk.BooleanVar(value=self.config.auto_hotspot),
             "autostart_server": tk.BooleanVar(value=self.config.autostart_server),
+            "block_execution": tk.BooleanVar(value=self.config.block_execution),
         }
 
         def row(index, label):
@@ -222,10 +223,15 @@ class RefugeApp:
             form, text="Start the upload server when Refuge launches",
             variable=self.vars["autostart_server"]).grid(
             row=5, column=1, sticky="w", pady=2)
+        ttk.Checkbutton(
+            form, text="Block execution of rescued files (quarantine: "
+                       "deny-execute ACL + Mark-of-the-Web)",
+            variable=self.vars["block_execution"]).grid(
+            row=6, column=1, sticky="w", pady=2)
 
         ttk.Button(form, text="Save settings", style="Accent.TButton",
                    command=self._save_settings).grid(
-            row=6, column=1, sticky="w", pady=(16, 0))
+            row=7, column=1, sticky="w", pady=(16, 0))
 
         if sys.platform == "win32":
             hint = ("Tip: if client machines cannot reach the upload page, allow the "
@@ -258,14 +264,21 @@ class RefugeApp:
             auto_hotspot=self.vars["auto_hotspot"].get(),
             check_interval_seconds=self.config.check_interval_seconds,
             autostart_server=self.vars["autostart_server"].get(),
+            block_execution=self.vars["block_execution"].get(),
         )
         problems = candidate.validate()
         if problems:
             messagebox.showerror("Refuge", "\n".join(problems))
             return
+        if self.config.block_execution and not candidate.block_execution:
+            from .quarantine import unharden_destination
+            unharden_destination(self.config.dest_dir)
+            self.bus.warn("Execution blocking disabled - deny-execute ACL "
+                          "removed from the rescue folder.")
         restart_server = self.server.running and (
             candidate.port != self.config.port or
-            candidate.dest_dir != self.config.dest_dir)
+            candidate.dest_dir != self.config.dest_dir or
+            candidate.block_execution != self.config.block_execution)
         for field, value in vars(candidate).items():
             setattr(self.config, field, value)
         self.config.save()

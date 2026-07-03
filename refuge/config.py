@@ -18,6 +18,7 @@ class Config:
     auto_hotspot: bool = True
     check_interval_seconds: int = 10
     autostart_server: bool = True
+    block_execution: bool = True
 
     @classmethod
     def load(cls):

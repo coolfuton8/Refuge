@@ -14,6 +14,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from .quarantine import harden_destination, protect_file
 from .web import PAGE_HTML
 
 CHUNK_SIZE = 64 * 1024
@@ -238,6 +239,8 @@ class RefugeHandler(BaseHTTPRequestHandler):
                         last_report = written
                         bus.emit("transfer_progress", id=transfer_id, written=written)
             os.replace(part_path, final_path)
+            if self.server.block_execution:
+                protect_file(final_path, bus)
         except BaseException:
             try:
                 part_path.unlink(missing_ok=True)
@@ -300,6 +303,8 @@ class UploadServer:
         if self.running:
             return True
         Path(self.config.dest_dir).mkdir(parents=True, exist_ok=True)
+        if self.config.block_execution:
+            harden_destination(self.config.dest_dir, self.bus)
         try:
             httpd = ThreadingHTTPServer(
                 (self.config.bind_address, int(self.config.port)), RefugeHandler)
@@ -309,6 +314,7 @@ class UploadServer:
         httpd.daemon_threads = True
         httpd.bus = self.bus
         httpd.dest_dir = self.config.dest_dir
+        httpd.block_execution = self.config.block_execution
         httpd.names = _NameReservation()
         self._httpd = httpd
         self._thread = threading.Thread(
