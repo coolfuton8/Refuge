@@ -19,6 +19,7 @@ class Config:
     check_interval_seconds: int = 10
     autostart_server: bool = True
     block_execution: bool = True
+    compress_to_zip: bool = False
 
     @classmethod
     def load(cls):

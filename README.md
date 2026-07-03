@@ -81,6 +81,18 @@ Turning the option off removes the folder ACL. To remove it manually:
 This blocks in-place execution; it does **not** disinfect anything. Scan
 rescued files with AV before restoring them to a rebuilt machine.
 
+## Compress to zip (optional)
+
+Enable "Compress each rescued file into a .zip" in Settings and every file is
+compressed right after it finishes uploading. The original is only deleted
+after the archive passes verification: a zip CRC integrity test **and** a full
+byte-for-byte comparison of the archived content against the original. If
+verification fails for any reason, the uncompressed original is kept and the
+dashboard logs an error — rescue data is never lost to a bad archive.
+
+Off by default. Zips inherit the quarantine protections (Mark-of-the-Web,
+deny-execute folder ACL). Zip64 is enabled, so files over 4 GB are fine.
+
 ## Reliability details
 
 - Uploads stream to disk in 64 KiB chunks — multi-GB files are fine and never

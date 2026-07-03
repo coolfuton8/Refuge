@@ -188,6 +188,7 @@ class RefugeApp:
             "auto_hotspot": tk.BooleanVar(value=self.config.auto_hotspot),
             "autostart_server": tk.BooleanVar(value=self.config.autostart_server),
             "block_execution": tk.BooleanVar(value=self.config.block_execution),
+            "compress_to_zip": tk.BooleanVar(value=self.config.compress_to_zip),
         }
 
         def row(index, label):
@@ -228,10 +229,15 @@ class RefugeApp:
                        "deny-execute ACL + Mark-of-the-Web)",
             variable=self.vars["block_execution"]).grid(
             row=6, column=1, sticky="w", pady=2)
+        ttk.Checkbutton(
+            form, text="Compress each rescued file into a .zip "
+                       "(verified byte-exact, then original is removed)",
+            variable=self.vars["compress_to_zip"]).grid(
+            row=7, column=1, sticky="w", pady=2)
 
         ttk.Button(form, text="Save settings", style="Accent.TButton",
                    command=self._save_settings).grid(
-            row=7, column=1, sticky="w", pady=(16, 0))
+            row=8, column=1, sticky="w", pady=(16, 0))
 
         if sys.platform == "win32":
             hint = ("Tip: if client machines cannot reach the upload page, allow the "
@@ -265,6 +271,7 @@ class RefugeApp:
             check_interval_seconds=self.config.check_interval_seconds,
             autostart_server=self.vars["autostart_server"].get(),
             block_execution=self.vars["block_execution"].get(),
+            compress_to_zip=self.vars["compress_to_zip"].get(),
         )
         problems = candidate.validate()
         if problems:
@@ -278,7 +285,8 @@ class RefugeApp:
         restart_server = self.server.running and (
             candidate.port != self.config.port or
             candidate.dest_dir != self.config.dest_dir or
-            candidate.block_execution != self.config.block_execution)
+            candidate.block_execution != self.config.block_execution or
+            candidate.compress_to_zip != self.config.compress_to_zip)
         for field, value in vars(candidate).items():
             setattr(self.config, field, value)
         self.config.save()

@@ -11,6 +11,7 @@ import json
 import os
 import re
 import threading
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -123,6 +124,38 @@ def iter_multipart(reader, boundary):
         yield headers, body_iter
         for _ in body_iter:  # drain if handler stopped early
             pass
+
+
+class ZipVerifyError(Exception):
+    pass
+
+
+def compress_and_verify(original, zip_part_path, arcname):
+    """Write `original` into a zip at `zip_part_path` and prove the archive
+    holds a byte-exact copy. Raises ZipVerifyError if anything is off."""
+    with zipfile.ZipFile(zip_part_path, "w", zipfile.ZIP_DEFLATED,
+                         allowZip64=True) as zf:
+        zf.write(original, arcname=arcname)
+    with zipfile.ZipFile(zip_part_path, "r") as zf:
+        if zf.testzip() is not None:
+            raise ZipVerifyError("archive failed CRC check")
+        try:
+            info = zf.getinfo(arcname)
+        except KeyError:
+            raise ZipVerifyError("file missing from archive") from None
+        original_size = os.path.getsize(original)
+        if info.file_size != original_size:
+            raise ZipVerifyError(
+                f"size mismatch (zip {info.file_size} vs original {original_size})")
+        with zf.open(arcname) as archived, open(original, "rb") as source:
+            while True:
+                a = archived.read(CHUNK_SIZE)
+                b = source.read(CHUNK_SIZE)
+                if a != b:
+                    raise ZipVerifyError("archive content differs from original")
+                if not a:
+                    break
+    return os.path.getsize(zip_part_path)
 
 
 _SAFE_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -239,8 +272,6 @@ class RefugeHandler(BaseHTTPRequestHandler):
                         last_report = written
                         bus.emit("transfer_progress", id=transfer_id, written=written)
             os.replace(part_path, final_path)
-            if self.server.block_execution:
-                protect_file(final_path, bus)
         except BaseException:
             try:
                 part_path.unlink(missing_ok=True)
@@ -251,12 +282,43 @@ class RefugeHandler(BaseHTTPRequestHandler):
         finally:
             self.server.names.release(final_path)
 
+        stored_path = final_path
+        if self.server.compress_to_zip:
+            stored_path = self._zip_rescued_file(final_path, directory)
+        if self.server.block_execution:
+            protect_file(stored_path, bus)
+
         bus.emit("transfer_done", id=transfer_id, written=written,
-                 name=str(final_path.relative_to(dest_root)))
-        bus.success(f"Rescued '{final_path.name}' "
+                 name=str(stored_path.relative_to(dest_root)))
+        bus.success(f"Rescued '{stored_path.name}' "
                     f"({written:,} bytes) from {client}"
                     f"{' [' + machine + ']' if machine else ''}")
-        return final_path.name
+        return stored_path.name
+
+    def _zip_rescued_file(self, final_path, directory):
+        """Compress a saved file into a verified zip, then remove the original.
+        On any failure the original is kept - rescue data is never lost."""
+        bus = self.server.bus
+        zip_path = self.server.names.claim(directory, final_path.name + ".zip")
+        zip_part = zip_path.with_name(zip_path.name + ".part")
+        try:
+            zip_size = compress_and_verify(final_path, zip_part, final_path.name)
+            os.replace(zip_part, zip_path)
+            final_path.unlink()
+        except (ZipVerifyError, OSError, zipfile.BadZipFile) as exc:
+            try:
+                zip_part.unlink(missing_ok=True)
+            except OSError:
+                pass
+            bus.error(f"Compression of '{final_path.name}' failed ({exc}) - "
+                      "keeping the uncompressed original.")
+            return final_path
+        finally:
+            self.server.names.release(zip_path)
+        bus.info(f"Compressed '{final_path.name}' -> '{zip_path.name}' "
+                 f"(verified byte-exact, {zip_size:,} bytes on disk); "
+                 "original removed.")
+        return zip_path
 
     def _list_received(self):
         root = Path(self.server.dest_dir)
@@ -315,6 +377,7 @@ class UploadServer:
         httpd.bus = self.bus
         httpd.dest_dir = self.config.dest_dir
         httpd.block_execution = self.config.block_execution
+        httpd.compress_to_zip = self.config.compress_to_zip
         httpd.names = _NameReservation()
         self._httpd = httpd
         self._thread = threading.Thread(
