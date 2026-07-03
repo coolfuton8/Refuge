@@ -189,6 +189,7 @@ class Hotspot:
                         "Could not start a hotspot with either method. "
                         "Check that Wi-Fi is enabled; the legacy method also needs "
                         "Refuge to run as Administrator.")
+                    self.bus.emit("hotspot_state", active=False, method=None)
                     return False
             else:
                 if self._start_nmcli_hotspot():
@@ -198,6 +199,7 @@ class Hotspot:
                         "Could not start a hotspot via NetworkManager. Check that "
                         "a Wi-Fi adapter is present and managed by NetworkManager "
                         "(nmcli device).")
+                    self.bus.emit("hotspot_state", active=False, method=None)
                     return False
             self.bus.success(
                 f"Hotspot up via {self.method}. SSID '{self.config.hotspot_ssid}', "

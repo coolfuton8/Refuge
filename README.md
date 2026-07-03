@@ -26,7 +26,9 @@ so it runs from a USB stick on any machine with Python — no internet, no
 - **No network at all:** the monitor detects it and automatically stands up an
   emergency Wi-Fi hotspot (configurable SSID/password). Join the failing
   machine to that Wi-Fi and browse to `http://192.168.137.1:<port>`.
-- You can also force the hotspot on/off with the **Start Hotspot** button.
+- The **Start Hotspot** button is only offered while disconnected — when the
+  machine already has a network, the button reads "Hotspot (connected)" and is
+  disabled. Stopping a running hotspot is always allowed.
 
 Hotspot support is best-effort:
 

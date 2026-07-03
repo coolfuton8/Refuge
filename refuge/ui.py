@@ -45,6 +45,7 @@ class RefugeApp:
         self.files_rescued = 0
         self.bytes_rescued = 0
         self.active_transfers = {}  # transfer id -> treeview item id
+        self.net_state = None  # last state reported by the network monitor
 
         self.root = tk.Tk()
         self.root.title(f"Refuge {__version__} - Emergency File Rescue")
@@ -281,6 +282,8 @@ class RefugeApp:
             self.server.start()
 
     def _toggle_hotspot(self):
+        if not self.hotspot.active and self.net_state != "OFFLINE":
+            return  # hotspot is only offered while disconnected
         self.hotspot_btn.state(["disabled"])
         target = self.hotspot.stop if self.hotspot.active else self.hotspot.start
         import threading
@@ -336,14 +339,31 @@ class RefugeApp:
         colors = {"LAN": GOOD, "HOTSPOT": WARN, "LAN+HOTSPOT": GOOD, "OFFLINE": BAD}
         labels = {"LAN": "Connected to network", "HOTSPOT": "Hotspot mode",
                   "LAN+HOTSPOT": "Network + hotspot", "OFFLINE": "No network"}
+        self.net_state = state
         self.net_dot.configure(fg=colors.get(state, MUTED))
         self.net_label.configure(text=labels.get(state, state))
+        if (state == "OFFLINE" and not self.hotspot.active
+                and not self.config.auto_hotspot):
+            self.bus.warn("No network detected - the emergency hotspot is now "
+                          "available via the Start Hotspot button.")
+        self._update_hotspot_button()
         self._refresh_urls(event.data.get("addresses"))
 
     def _on_hotspot_state(self, event):
-        active = event.data["active"]
-        self.hotspot_btn.state(["!disabled"])
-        self.hotspot_btn.configure(text="Stop Hotspot" if active else "Start Hotspot")
+        self._update_hotspot_button()
+
+    def _update_hotspot_button(self):
+        """The hotspot is only offered while disconnected; stopping a running
+        hotspot is always allowed."""
+        if self.hotspot.active:
+            self.hotspot_btn.configure(text="Stop Hotspot")
+            self.hotspot_btn.state(["!disabled"])
+        elif self.net_state == "OFFLINE":
+            self.hotspot_btn.configure(text="Start Hotspot")
+            self.hotspot_btn.state(["!disabled"])
+        else:
+            self.hotspot_btn.configure(text="Hotspot (connected)")
+            self.hotspot_btn.state(["disabled"])
 
     def _refresh_urls(self, addresses=None):
         from .network import network_state as _ns
