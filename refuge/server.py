@@ -10,6 +10,7 @@ import itertools
 import json
 import os
 import re
+import sys
 import threading
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -348,6 +349,23 @@ class RefugeHandler(BaseHTTPRequestHandler):
         pass
 
 
+class _RefugeHTTPServer(ThreadingHTTPServer):
+    """Routes handler-thread errors to the dashboard instead of stderr
+    (stderr is invisible when launched with pythonw)."""
+
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError,
+                            ConnectionAbortedError, TimeoutError)):
+            self.bus.warn(f"Connection from {client_address[0]} dropped "
+                          "mid-request (client machine may have gone down).")
+        else:
+            self.bus.error(f"Server error handling request from "
+                           f"{client_address[0]}: {type(exc).__name__}: {exc}")
+
+
 class UploadServer:
     """Owns the ThreadingHTTPServer and its serve loop thread."""
 
@@ -368,12 +386,11 @@ class UploadServer:
         if self.config.block_execution:
             harden_destination(self.config.dest_dir, self.bus)
         try:
-            httpd = ThreadingHTTPServer(
+            httpd = _RefugeHTTPServer(
                 (self.config.bind_address, int(self.config.port)), RefugeHandler)
         except OSError as exc:
             self.bus.error(f"Could not start server on port {self.config.port}: {exc}")
             return False
-        httpd.daemon_threads = True
         httpd.bus = self.bus
         httpd.dest_dir = self.config.dest_dir
         httpd.block_execution = self.config.block_execution

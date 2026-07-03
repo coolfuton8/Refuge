@@ -56,6 +56,7 @@ class RefugeApp:
         self._build_header()
         self._build_notebook()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.root.report_callback_exception = self._on_tk_error
 
     # ------------------------------------------------------------------ style
 
@@ -90,6 +91,9 @@ class RefugeApp:
         style.configure("Treeview.Heading", background="#2a323c", foreground=MUTED,
                         borderwidth=0)
         style.map("Treeview", background=[("selected", "#31536a")])
+        style.configure("Vertical.TScrollbar", background="#2a323c",
+                        troughcolor=PANEL, bordercolor=PANEL, arrowcolor=MUTED)
+        style.map("Vertical.TScrollbar", background=[("active", "#37414d")])
 
     # ----------------------------------------------------------------- header
 
@@ -148,19 +152,32 @@ class RefugeApp:
                    command=self._open_page).pack(side="left", padx=(8, 0))
 
         columns = ("time", "client", "file", "size", "status")
-        self.tree = ttk.Treeview(page, columns=columns, show="headings", height=8)
+        tree_frame = ttk.Frame(page)
+        tree_frame.pack(fill="both", expand=True)
+        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings",
+                                 height=8)
         for cid, text, width, anchor in (
                 ("time", "Time", 80, "w"), ("client", "From", 120, "w"),
                 ("file", "File", 340, "w"), ("size", "Received", 110, "e"),
                 ("status", "Status", 110, "w")):
             self.tree.heading(cid, text=text)
             self.tree.column(cid, width=width, anchor=anchor, stretch=(cid == "file"))
-        self.tree.pack(fill="both", expand=True)
+        tree_scroll = ttk.Scrollbar(tree_frame, orient="vertical",
+                                    command=self.tree.yview)
+        self.tree.configure(yscrollcommand=tree_scroll.set)
+        tree_scroll.pack(side="right", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True)
 
         ttk.Label(page, text="Activity log").pack(anchor="w", pady=(10, 2))
-        self.log = tk.Text(page, height=9, bg=PANEL, fg=FG, relief="flat",
+        log_frame = ttk.Frame(page)
+        log_frame.pack(fill="both", expand=True)
+        self.log = tk.Text(log_frame, height=9, bg=PANEL, fg=FG, relief="flat",
                            font=("Consolas", 9), state="disabled", wrap="word")
-        self.log.pack(fill="both", expand=True)
+        log_scroll = ttk.Scrollbar(log_frame, orient="vertical",
+                                   command=self.log.yview)
+        self.log.configure(yscrollcommand=log_scroll.set)
+        log_scroll.pack(side="right", fill="y")
+        self.log.pack(side="left", fill="both", expand=True)
         for tag, color in (("info", MUTED), ("warn", WARN),
                            ("error", BAD), ("success", GOOD)):
             self.log.tag_configure(tag, foreground=color)
@@ -333,19 +350,47 @@ class RefugeApp:
     # ----------------------------------------------------------- event handling
 
     def _poll_events(self):
-        for event in self.bus.drain():
-            handler = getattr(self, f"_on_{event.kind}", None)
-            if handler:
-                handler(event)
-        self.root.after(POLL_MS, self._poll_events)
+        try:
+            for event in self.bus.drain():
+                handler = getattr(self, f"_on_{event.kind}", None)
+                if handler:
+                    try:
+                        handler(event)
+                    except Exception as exc:
+                        self._append_log(
+                            "error", f"Dashboard error while displaying "
+                            f"'{event.kind}': {type(exc).__name__}: {exc}")
+        finally:
+            # The poll loop must survive anything, or the dashboard freezes.
+            self.root.after(POLL_MS, self._poll_events)
 
     def _on_log(self, event):
-        stamp = datetime.datetime.now().strftime("%H:%M:%S")
-        self.log.configure(state="normal")
-        self.log.insert("end", f"[{stamp}] {event.data['message']}\n",
-                        event.data["level"])
-        self.log.see("end")
-        self.log.configure(state="disabled")
+        self._append_log(event.data["level"], event.data["message"])
+
+    MAX_LOG_LINES = 5000
+
+    def _append_log(self, level, message):
+        try:
+            stamp = datetime.datetime.now().strftime("%H:%M:%S")
+            # Only chase the tail if the user is already there, so scrolling
+            # back to read an error is not fought by incoming messages.
+            follow = self.log.yview()[1] >= 0.999
+            self.log.configure(state="normal")
+            self.log.insert("end", f"[{stamp}] {message}\n", level)
+            lines = int(self.log.index("end-1c").split(".")[0])
+            if lines > self.MAX_LOG_LINES:
+                self.log.delete("1.0", f"{lines - self.MAX_LOG_LINES + 1}.0")
+            if follow:
+                self.log.see("end")
+            self.log.configure(state="disabled")
+        except tk.TclError:
+            pass  # window is being torn down
+
+    def _on_tk_error(self, exc_type, exc_value, exc_tb):
+        """Uncaught Tkinter callback exceptions land in the activity log
+        instead of an invisible stderr (pythonw has no console)."""
+        self._append_log("error",
+                         f"UI error: {exc_type.__name__}: {exc_value}")
 
     def _on_server_state(self, event):
         running = event.data["running"]
