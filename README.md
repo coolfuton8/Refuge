@@ -54,9 +54,33 @@ If every method fails, the dashboard log tells you why.
 | Hotspot SSID / password | `REFUGE-RESCUE` / `rescue-me-now` | Password must be 8–63 chars |
 | Auto-hotspot | on | Start hotspot when offline |
 | Autostart server | on | Start listening at launch |
+| Block execution of rescued files | on | Quarantine the rescue folder — see below |
+| Compress each rescued file into a .zip | off | Verify-then-delete original — see below |
 
 Settings persist to `refuge_config.json` next to the app, so they travel with
-the USB drive.
+the USB drive. Changing the port, rescue folder, quarantine, or compression
+option while the server is running restarts it automatically to apply.
+
+## Live dashboard
+
+The Dashboard tab shows everything happening in real time so you're never
+guessing during a rescue:
+
+- **Stat tiles** — files rescued, total data rescued, and active transfers.
+- **Transfer list** — one row per file with the source machine, live byte
+  count as it streams in, and final status. Scrollable.
+- **Activity log** — timestamped, colour-coded events (info / success /
+  warning / error), scrollable back through history. It auto-follows new
+  messages only when you're already scrolled to the bottom, so reading an
+  error isn't interrupted by incoming transfers; scroll back down to resume
+  following. Kept to the last 5000 lines.
+
+**All errors surface here.** Because Refuge normally runs windowless (via
+`pythonw`, so no console exists), errors that would otherwise vanish to
+stderr — HTTP server-thread failures, client machines dropping mid-transfer,
+disk/compression failures, and internal UI errors — are all routed into the
+activity log instead. A "Open rescue folder" and "Open upload page" button sit
+above the transfer list.
 
 ## Execution safeguard (quarantine)
 
@@ -136,9 +160,13 @@ run.bat               Windows launcher (double-click)
 run.sh                Linux/macOS launcher
 run.py                python entry point
 refuge/
-  ui.py               Tkinter configuration + live dashboard
-  server.py           threaded HTTP server, streaming multipart parser
-  network.py          connectivity monitor + hotspot control (WinRT / netsh)
+  ui.py               Tkinter configuration + live dashboard (scrollable log)
+  server.py           threaded HTTP server, streaming multipart parser,
+                      verified compress-to-zip
+  network.py          connectivity monitor + hotspot control
+                      (Windows WinRT/netsh, Linux nmcli)
+  quarantine.py       execution safeguards (deny-execute ACL, Mark-of-the-Web,
+                      Linux no-exec)
   web.py              the embedded single-page upload site
   config.py           JSON config persistence
   events.py           thread-safe event bus feeding the dashboard
