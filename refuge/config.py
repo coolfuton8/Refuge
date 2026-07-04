@@ -22,6 +22,7 @@ class Config:
     compress_to_zip: bool = False
     allow_web_delete: bool = True
     require_client_approval: bool = True
+    single_client_only: bool = True
 
     @classmethod
     def load(cls):

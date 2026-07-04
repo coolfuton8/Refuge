@@ -210,49 +210,63 @@ class RefugeHandler(BaseHTTPRequestHandler):
         except (socket.herror, socket.gaierror, OSError):
             return ""
 
-    def _client_permitted(self):
-        """Gate every request through the GUI approval list. Denied clients
-        get a 404 (as if the site did not exist)."""
-        if not getattr(self.server, "require_client_approval", False):
-            return True
+    def _enter_request(self):
+        """Admit this request through single-client + GUI-approval gating.
+        Denied clients get a 404 (as if the site did not exist)."""
         ip = self.client_address[0]
-        return self.server.access.check(ip, lambda: self._client_hostname(ip))
+        status = self.server.access.enter(
+            ip,
+            require_approval=getattr(self.server, "require_client_approval", False),
+            single_client=getattr(self.server, "single_client_only", False),
+            provider=lambda: self._client_hostname(ip))
+        if status == "deny":
+            self._send(404, "text/plain", b"Not found")
+            return False
+        return True
+
+    def _leave_request(self):
+        self.server.access.leave(self.client_address[0])
 
     # -- routing -------------------------------------------------------------
 
     def do_GET(self):
-        if not self._client_permitted():
-            self._send(404, "text/plain", b"Not found")
-            return
-        if self.path in ("/", "/index.html"):
-            self._send(200, "text/html; charset=utf-8", PAGE_HTML.encode("utf-8"))
-        elif self.path == "/files":
-            self._send(200, "application/json",
-                       json.dumps(self._list_received()).encode("utf-8"))
-        elif self.path.startswith("/download/"):
-            self._handle_download(self.path[len("/download/"):])
-        else:
-            self._send(404, "text/plain", b"Not found")
-
-    def do_POST(self):
-        if not self._client_permitted():
-            self._send(404, "text/plain", b"Not found")
-            return
-        if self.path == "/delete":
-            self._handle_delete()
-            return
-        if self.path != "/upload":
-            self._send(404, "text/plain", b"Not found")
+        if not self._enter_request():
             return
         try:
-            saved = self._handle_upload()
-            self._send(200, "application/json", json.dumps({"saved": saved}).encode())
-        except MultipartError as exc:
-            self.server.bus.error(f"Upload from {self.client_address[0]} failed: {exc}")
-            self._send(400, "text/plain", str(exc).encode())
-        except OSError as exc:
-            self.server.bus.error(f"Disk error while receiving upload: {exc}")
-            self._send(500, "text/plain", b"Server storage error")
+            if self.path in ("/", "/index.html"):
+                self._send(200, "text/html; charset=utf-8", PAGE_HTML.encode("utf-8"))
+            elif self.path == "/files":
+                self._send(200, "application/json",
+                           json.dumps(self._list_received()).encode("utf-8"))
+            elif self.path.startswith("/download/"):
+                self._handle_download(self.path[len("/download/"):])
+            else:
+                self._send(404, "text/plain", b"Not found")
+        finally:
+            self._leave_request()
+
+    def do_POST(self):
+        if not self._enter_request():
+            return
+        try:
+            if self.path == "/delete":
+                self._handle_delete()
+            elif self.path != "/upload":
+                self._send(404, "text/plain", b"Not found")
+            else:
+                try:
+                    saved = self._handle_upload()
+                    self._send(200, "application/json",
+                               json.dumps({"saved": saved}).encode())
+                except MultipartError as exc:
+                    self.server.bus.error(
+                        f"Upload from {self.client_address[0]} failed: {exc}")
+                    self._send(400, "text/plain", str(exc).encode())
+                except OSError as exc:
+                    self.server.bus.error(f"Disk error while receiving upload: {exc}")
+                    self._send(500, "text/plain", b"Server storage error")
+        finally:
+            self._leave_request()
 
     # -- upload handling -----------------------------------------------------
 
@@ -580,6 +594,7 @@ class UploadServer:
         httpd.allow_web_delete = self.config.allow_web_delete
         httpd.authcodes = self.authcodes
         httpd.require_client_approval = self.config.require_client_approval
+        httpd.single_client_only = self.config.single_client_only
         httpd.access = self.access
         httpd.names = _NameReservation()
         self._httpd = httpd

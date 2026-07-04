@@ -69,6 +69,7 @@ machine.
 | Compress each rescued file into a .zip | off | Verify-then-delete original — see below |
 | Allow code-authorized delete/overwrite | on | Uncheck to make saved files strictly read-only — see below |
 | Ask before admitting each new client | on | GUI approval popup per new client — see below |
+| Serve only one remote client at a time | on | Others get 404 until the current client disconnects — see below |
 
 Settings persist to `refuge_config.json` next to the app, so they travel with
 the USB drive. Changing the port, rescue folder, quarantine, or compression
@@ -117,6 +118,22 @@ Refuge is running; closing the app forgets them. The operator's own machine
 the setting to admit everyone automatically (useful on a trusted LAN with many
 clients). Because a denied client only ever sees a 404, a hostile machine
 can't tell Refuge is even there.
+
+### One client at a time
+
+With "Serve only one remote client at a time" on (the default), Refuge serves
+a single remote client exclusively. While that client is connected, every
+other remote machine gets a 404 — no approval popups, nothing served — until
+the current one disconnects.
+
+"Connected" means the client has a request in flight (e.g. a large upload in
+progress never counts as disconnected) or has made a request within the last
+~20 seconds. Since the upload page polls in the background, a client holds its
+slot for as long as its page is open; **close the page on the finished machine
+(or leave it idle ~20s) to release the slot.** The next client to arrive then
+goes through the normal approval process. The operator's own loopback access
+is exempt and always works. Untick the setting to serve multiple clients at
+once.
 
 ## Protecting saved files (delete / overwrite authorization)
 

@@ -240,6 +240,8 @@ class RefugeApp:
             "allow_web_delete": tk.BooleanVar(value=self.config.allow_web_delete),
             "require_client_approval": tk.BooleanVar(
                 value=self.config.require_client_approval),
+            "single_client_only": tk.BooleanVar(
+                value=self.config.single_client_only),
         }
 
         def row(index, label):
@@ -295,10 +297,15 @@ class RefugeApp:
                        "denied clients get a 404)",
             variable=self.vars["require_client_approval"]).grid(
             row=9, column=1, sticky="w", pady=2)
+        ttk.Checkbutton(
+            form, text="Serve only one remote client at a time (others get 404 "
+                       "until it disconnects)",
+            variable=self.vars["single_client_only"]).grid(
+            row=10, column=1, sticky="w", pady=2)
 
         ttk.Button(form, text="Save settings", style="Accent.TButton",
                    command=self._save_settings).grid(
-            row=10, column=1, sticky="w", pady=(16, 0))
+            row=11, column=1, sticky="w", pady=(16, 0))
 
         if sys.platform == "win32":
             hint = ("Tip: if client machines cannot reach the upload page, allow the "
@@ -335,6 +342,7 @@ class RefugeApp:
             compress_to_zip=self.vars["compress_to_zip"].get(),
             allow_web_delete=self.vars["allow_web_delete"].get(),
             require_client_approval=self.vars["require_client_approval"].get(),
+            single_client_only=self.vars["single_client_only"].get(),
         )
         problems = candidate.validate()
         if problems:
@@ -351,7 +359,8 @@ class RefugeApp:
             candidate.block_execution != self.config.block_execution or
             candidate.compress_to_zip != self.config.compress_to_zip or
             candidate.allow_web_delete != self.config.allow_web_delete or
-            candidate.require_client_approval != self.config.require_client_approval)
+            candidate.require_client_approval != self.config.require_client_approval or
+            candidate.single_client_only != self.config.single_client_only)
         for field, value in vars(candidate).items():
             setattr(self.config, field, value)
         self.config.save()
