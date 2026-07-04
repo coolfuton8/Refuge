@@ -142,8 +142,13 @@ If you're seeing connection attempts from machines that shouldn't be there,
 turn on "Fingerprint connecting clients with nmap" in Settings. The first time
 each remote IP opens a connection, Refuge runs an nmap scan against it in the
 background and writes a report to the **client_scans** folder next to the app
-(the "Open client scans" button on the dashboard opens it). Each IP is scanned
-once per session.
+(the "Open client scans" button on the dashboard opens it).
+
+Each host is fingerprinted **only once, ever.** The scans folder *is* the
+record: before scanning an IP, Refuge checks whether a `scan_<ip>_*.txt`
+report already exists there and skips it if so — so a host is never re-scanned,
+even after Refuge is restarted. There's no separate index file. To deliberately
+re-scan a host, delete its report from the folder.
 
 Fingerprinting happens at the TCP-connection level, so it catches **every**
 connection attempt — not just well-formed web requests. A port scanner, a
