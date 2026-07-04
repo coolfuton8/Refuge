@@ -49,8 +49,8 @@ class RefugeApp:
 
         self.root = tk.Tk()
         self.root.title(f"Refuge {__version__} - Emergency File Rescue")
-        self.root.geometry("980x680")
-        self.root.minsize(820, 560)
+        self.root.geometry("1100x680")
+        self.root.minsize(980, 560)
         self.root.configure(bg=BG)
         self._build_style()
         self._build_header()
@@ -116,7 +116,7 @@ class RefugeApp:
         self.url_var = tk.StringVar(value="")
         url_entry = tk.Entry(bar, textvariable=self.url_var, readonlybackground=BG,
                              fg=ACCENT, bg=BG, relief="flat", state="readonly",
-                             font=("Consolas", 10), width=42)
+                             font=("Consolas", 10), width=1)
         url_entry.pack(side="left", fill="x", expand=True, padx=(0, 12))
 
         self.hotspot_btn = ttk.Button(bar, text="Start Hotspot",

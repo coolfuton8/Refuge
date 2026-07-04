@@ -50,12 +50,13 @@ PAGE_HTML = """<!DOCTYPE html>
   .rrow { display: flex; align-items: center; gap: 10px; padding: 6px 0;
           border-bottom: 1px solid #202830; }
   .rrow .rname { flex: 1; overflow: hidden; text-overflow: ellipsis;
-          white-space: nowrap; color: #cdd4db; }
+          white-space: nowrap; color: #4fc3f7; text-decoration: none; }
+  .rrow .rname:hover { text-decoration: underline; }
   .rrow .rsize { color: #8a939c; white-space: nowrap; }
   button { background: #2a323c; color: #e6e9ec; border: 1px solid #3a4552;
           border-radius: 6px; padding: 5px 12px; font-size: .82rem; cursor: pointer; }
   button:hover { background: #37414d; }
-  button.del { color: #ef8a8a; border-color: #5a3236; }
+  button.del { color: #ef8a8a; border-color: #5a3236; padding: 4px 10px; }
   button.del:hover { background: #3a2226; }
   #delmsg { font-size: .84rem; margin-top: 8px; min-height: 1.1em; }
 </style>
@@ -95,6 +96,8 @@ PAGE_HTML = """<!DOCTYPE html>
 
   <div class="card">
     <h2>Files already rescued to this drive</h2>
+    <div class="hint">Click a name to download it back. Deleting requires the
+      authorization code above.</div>
     <div class="received" id="received">Loading&hellip;</div>
   </div>
 </div>
@@ -236,9 +239,11 @@ PAGE_HTML = """<!DOCTYPE html>
       if (files.length === 0) { box.textContent = 'Nothing yet.'; return; }
       box.innerHTML = '';
       files.forEach(function (f) {
+        var href = '/download/' + f.name.split('/').map(encodeURIComponent).join('/');
         var row = document.createElement('div');
         row.className = 'rrow';
-        row.innerHTML = '<span class="rname">' + esc(f.name) + '</span>' +
+        row.innerHTML = '<a class="rname" href="' + href + '" download>' +
+          esc(f.name) + '</a>' +
           '<span class="rsize">' + fmt(f.size) + '</span>' +
           '<button class="del">Delete</button>';
         row.querySelector('button').addEventListener('click', function () {
@@ -250,6 +255,7 @@ PAGE_HTML = """<!DOCTYPE html>
     xhr.send();
   }
   refreshReceived();
+  setInterval(refreshReceived, 5000);
 })();
 </script>
 </body>

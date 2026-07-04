@@ -45,6 +45,17 @@ Hotspot support is best-effort:
 
 If every method fails, the dashboard log tells you why.
 
+**Not every Wi-Fi adapter can host a hotspot.** Access Point mode is a driver
+and firmware feature, and some chipsets (older Intel cards in particular)
+don't support it at all — NetworkManager will fail every attempt with an
+error like "Hotspot network creation took too long" / "supplicant took too
+long to authenticate". If Auto-hotspot is on and the machine has no other
+network, Refuge will keep retrying that failing hotspot every few seconds
+(and keep logging the same error) for as long as it stays offline. If you see
+this, the fix isn't in Refuge's settings — try a different Wi-Fi adapter (a
+USB Wi-Fi dongle with confirmed AP-mode support works well) on the Refuge
+machine.
+
 ## Configuration (Settings tab)
 
 | Setting | Default | Notes |
@@ -166,8 +177,13 @@ deny-execute folder ACL). Zip64 is enabled, so files over 4 GB are fine.
   dropped connection never leaves a file that *looks* rescued but isn't.
 - Duplicate names are auto-suffixed (`report (1).xlsx`); nothing is
   overwritten without the GUI authorization code (see above).
-- Filenames are sanitized server-side, and delete/overwrite targets are
-  confined to the rescue folder (no path traversal from the web page).
+- Filenames are sanitized server-side, and download/delete/overwrite targets
+  are confined to the rescue folder (no path traversal from the web page).
+- Each entry in "Files already rescued to this drive" is a link back to that
+  file, streamed to the browser in 64 KiB chunks, so a rescued file can be
+  pulled back down through the same page if needed.
+- A Delete button next to each entry removes that file, but only with the
+  GUI authorization code (see above); deletions are logged to the activity log.
 
 ## Firewall
 
