@@ -23,7 +23,7 @@ from .authcode import AuthCodeManager
 from .config import APP_DIR
 from .quarantine import harden_destination, protect_file
 from .scanner import ClientScanner
-from .web import PAGE_HTML
+from .web import FAVICON_SVG, PAGE_HTML
 
 CHUNK_SIZE = 64 * 1024
 PROGRESS_EVERY_BYTES = 4 * 1024 * 1024
@@ -239,6 +239,8 @@ class RefugeHandler(BaseHTTPRequestHandler):
         try:
             if self.path in ("/", "/index.html"):
                 self._send(200, "text/html; charset=utf-8", PAGE_HTML.encode("utf-8"))
+            elif self.path in ("/favicon.svg", "/favicon.ico"):
+                self._send(200, "image/svg+xml", FAVICON_SVG.encode("utf-8"))
             elif self.path == "/files":
                 self._send(200, "application/json",
                            json.dumps(self._list_received()).encode("utf-8"))

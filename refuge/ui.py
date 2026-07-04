@@ -57,6 +57,7 @@ class RefugeApp:
 
         self.root = tk.Tk()
         self.root.title(f"Refuge {__version__} - Emergency File Rescue")
+        self._set_app_icon()
         self.root.geometry("1100x680")
         self.root.minsize(980, 560)
         self.root.configure(bg=BG)
@@ -67,6 +68,35 @@ class RefugeApp:
         self.root.report_callback_exception = self._on_tk_error
 
     # ------------------------------------------------------------------ style
+
+    def _set_app_icon(self):
+        """Window/taskbar icon: a folder with a download arrow (files pulled to
+        safety), drawn in code so no image file is needed. Matches the web
+        favicon. Non-fatal if the toolkit rejects it."""
+        try:
+            size = 32
+            bg, folder, arrow = "#14181d", "#4fc3f7", "#eaf6fb"
+            px = [[bg] * size for _ in range(size)]
+
+            def rect(x0, y0, x1, y1, color):
+                for y in range(max(0, y0), min(size, y1)):
+                    for x in range(max(0, x0), min(size, x1)):
+                        px[y][x] = color
+
+            rect(5, 9, 15, 13, folder)     # folder tab
+            rect(5, 12, 27, 26, folder)    # folder body
+            rect(15, 14, 18, 20, arrow)    # arrow shaft
+            for i, y in enumerate(range(20, 24)):  # arrowhead, pointing down
+                half = 5 - i
+                rect(16 - half, y, 16 + half + 1, y + 1, arrow)
+
+            img = tk.PhotoImage(width=size, height=size)
+            for y in range(size):
+                img.put("{" + " ".join(px[y]) + "}", to=(0, y))
+            self._app_icon = img  # keep a reference so it is not garbage-collected
+            self.root.iconphoto(True, img)
+        except Exception:
+            pass  # fall back to the default toolkit icon
 
     def _build_style(self):
         style = ttk.Style(self.root)

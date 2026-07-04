@@ -1,10 +1,23 @@
 """The single-page upload site served to client machines. No external assets."""
 
+# A file-rescue icon: a folder with a download arrow (files being pulled to
+# safety). Served at /favicon.svg and used as the browser-tab icon.
+FAVICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="12" fill="#14181d"/>'
+    '<path d="M12 20h14l4 4h22a3 3 0 0 1 3 3v18a3 3 0 0 1-3 3H12'
+    'a3 3 0 0 1-3-3V23a3 3 0 0 1 3-3z" fill="#4fc3f7"/>'
+    '<path d="M32 30v10M26 36l6 6 6-6" fill="none" stroke="#14181d" '
+    'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'
+    '</svg>'
+)
+
 PAGE_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>Refuge - Emergency File Rescue</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -63,7 +76,7 @@ PAGE_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <div class="wrap">
-  <h1>&#128737;&#65039; <span>Refuge</span> Emergency File Rescue</h1>
+  <h1>&#128193; <span>Refuge</span> Emergency File Rescue</h1>
   <div class="sub">Drop files below to copy them to the rescue drive. Large files are fine.</div>
 
   <div class="card">
