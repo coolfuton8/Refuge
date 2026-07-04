@@ -113,6 +113,11 @@ whether to allow it. Nothing is served until you answer:
 - **Deny with "Always block this IP/client"** ticked — the IP is 404'd for the
   rest of the session with no further popups.
 
+If the popup is left unanswered, it **counts down and automatically denies the
+connection, then closes itself** (after ~60 seconds) — so an unattended Refuge
+never hangs a client waiting, and a connection is never allowed just because
+nobody was at the screen. A denied client may ask again later.
+
 Every decision is written to the activity log. Decisions last as long as
 Refuge is running; closing the app forgets them. The operator's own machine
 (loopback / "Open upload page") is always admitted without a prompt. Untick

@@ -16,6 +16,10 @@ from .network import Hotspot, NetworkMonitor, network_state
 from .server import UploadServer
 
 POLL_MS = 150
+# Seconds the connection-approval popup waits for the operator before it
+# automatically denies and closes (kept below AccessControl.APPROVAL_TIMEOUT so
+# the GUI resolves the waiting connection first).
+PROMPT_TIMEOUT_S = 60
 
 BG = "#14181d"
 PANEL = "#1c222a"
@@ -609,21 +613,47 @@ class RefugeApp:
         ttk.Checkbutton(body, text="Always block this IP/client (until Refuge "
                                    "is closed)", variable=block_var).pack(anchor="w")
 
+        countdown = ttk.Label(body, style="Muted.TLabel")
+        countdown.pack(anchor="w", pady=(8, 0))
+
         buttons = ttk.Frame(body, style="Panel.TFrame")
         buttons.pack(fill="x", pady=(14, 0))
 
-        def answer(allow):
-            always_block = block_var.get()
-            self.server.access.resolve(ip, allow, always_block=always_block)
+        state = {"answered": False, "after": None}
+
+        def answer(allow, auto=False):
+            if state["answered"]:
+                return  # already resolved (guards a click racing the timer)
+            state["answered"] = True
+            if state["after"] is not None:
+                try:
+                    self.root.after_cancel(state["after"])
+                except tk.TclError:
+                    pass
+            if auto:
+                self.bus.warn(f"No response for connection from {who}; "
+                              "automatically denied.")
+            self.server.access.resolve(ip, allow, always_block=block_var.get())
             self._active_prompt = None
             dlg.destroy()
             self._show_next_prompt()
+
+        def tick(remaining):
+            if state["answered"]:
+                return
+            if remaining <= 0:
+                answer(False, auto=True)
+                return
+            countdown.configure(
+                text=f"Denies automatically in {remaining}s if you don't respond.")
+            state["after"] = self.root.after(1000, lambda: tick(remaining - 1))
 
         ttk.Button(buttons, text="Deny",
                    command=lambda: answer(False)).pack(side="right")
         ttk.Button(buttons, text="Allow", style="Accent.TButton",
                    command=lambda: answer(True)).pack(side="right", padx=(0, 8))
         dlg.protocol("WM_DELETE_WINDOW", lambda: answer(False))
+        tick(PROMPT_TIMEOUT_S)
 
         # Bring it to the operator's attention.
         dlg.update_idletasks()
