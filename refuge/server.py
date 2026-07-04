@@ -216,9 +216,8 @@ class RefugeHandler(BaseHTTPRequestHandler):
         """Admit this request through single-client + GUI-approval gating.
         Denied clients get a 404 (as if the site did not exist)."""
         ip = self.client_address[0]
-        scanner = getattr(self.server, "scanner", None)
-        if scanner is not None:
-            scanner.observe(ip)  # fingerprint even clients we are about to deny
+        # Fingerprinting happens at the connection level (server.verify_request),
+        # so it already ran for this client — including ones about to be denied.
         status = self.server.access.enter(
             ip,
             require_approval=getattr(self.server, "require_client_approval", False),
@@ -550,6 +549,20 @@ class _RefugeHTTPServer(ThreadingHTTPServer):
     (stderr is invisible when launched with pythonw)."""
 
     daemon_threads = True
+
+    def verify_request(self, request, client_address):
+        # Fingerprint every connection attempt at the socket level, before any
+        # HTTP parsing. Probes that open a TCP connection but never send a valid
+        # HTTP request never reach do_GET/do_POST, so scanning here (not in the
+        # request handler) is what catches them. Always returns True; actual
+        # admission/404 stays at the HTTP layer for well-formed requests.
+        scanner = getattr(self, "scanner", None)
+        if scanner is not None:
+            try:
+                scanner.observe(client_address[0])
+            except Exception:
+                pass
+        return True
 
     def handle_error(self, request, client_address):
         exc = sys.exc_info()[1]

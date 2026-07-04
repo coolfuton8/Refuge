@@ -140,11 +140,16 @@ once.
 
 If you're seeing connection attempts from machines that shouldn't be there,
 turn on "Fingerprint connecting clients with nmap" in Settings. The first time
-each remote IP contacts the server, Refuge runs an nmap scan against it in the
+each remote IP opens a connection, Refuge runs an nmap scan against it in the
 background and writes a report to the **client_scans** folder next to the app
 (the "Open client scans" button on the dashboard opens it). Each IP is scanned
-once per session; the scan even runs for clients that are then denied or
-blocked, so you can identify who's knocking.
+once per session.
+
+Fingerprinting happens at the TCP-connection level, so it catches **every**
+connection attempt — not just well-formed web requests. A port scanner, a
+service probe, or anything that opens the socket without sending a valid HTTP
+request is fingerprinted too, as are clients that are then denied or blocked.
+That's what lets you identify a machine that's merely "knocking" on the port.
 
 - Requires nmap installed on the Refuge machine. When you enable the option
   (and at every start with it on), the activity log immediately confirms the
