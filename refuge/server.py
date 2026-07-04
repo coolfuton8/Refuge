@@ -15,6 +15,7 @@ import threading
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 from .quarantine import harden_destination, protect_file
 from .web import PAGE_HTML
@@ -205,6 +206,14 @@ class RefugeHandler(BaseHTTPRequestHandler):
         elif self.path == "/files":
             self._send(200, "application/json",
                        json.dumps(self._list_received()).encode("utf-8"))
+        elif self.path.startswith("/download/"):
+            self._handle_download(self.path[len("/download/"):])
+        else:
+            self._send(404, "text/plain", b"Not found")
+
+    def do_DELETE(self):
+        if self.path.startswith("/download/"):
+            self._handle_delete(self.path[len("/download/"):])
         else:
             self._send(404, "text/plain", b"Not found")
 
@@ -327,11 +336,73 @@ class RefugeHandler(BaseHTTPRequestHandler):
         if root.is_dir():
             for path in root.rglob("*"):
                 if path.is_file() and not path.name.endswith(".part"):
-                    stat = path.stat()
-                    files.append({"name": str(path.relative_to(root)),
-                                  "size": stat.st_size, "mtime": stat.st_mtime})
+                    try:
+                        stat = path.stat()
+                    except OSError:
+                        continue  # removed/renamed since rglob listed it
+                    name = str(path.relative_to(root)).replace(os.sep, "/")
+                    files.append({"name": name, "size": stat.st_size,
+                                  "mtime": stat.st_mtime})
         files.sort(key=lambda f: f["mtime"], reverse=True)
         return files[:200]
+
+    def _resolve_rescued_file(self, raw_rel_path):
+        """Resolve a /download/<path> URL segment to a Path inside dest_dir.
+        Returns None if it's missing, still uploading (.part), or would
+        escape the rescue folder."""
+        root = Path(self.server.dest_dir).resolve()
+        rel_path = unquote(raw_rel_path)
+        candidate = (root / rel_path).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            return None
+        if not candidate.is_file() or candidate.name.endswith(".part"):
+            return None
+        return candidate
+
+    def _handle_download(self, raw_rel_path):
+        candidate = self._resolve_rescued_file(raw_rel_path)
+        if candidate is None:
+            self._send(404, "text/plain", b"Not found")
+            return
+        self._send_file(candidate)
+
+    def _handle_delete(self, raw_rel_path):
+        candidate = self._resolve_rescued_file(raw_rel_path)
+        if candidate is None:
+            self._send(404, "text/plain", b"Not found")
+            return
+        bus = self.server.bus
+        root = Path(self.server.dest_dir).resolve()
+        name = str(candidate.relative_to(root)).replace(os.sep, "/")
+        try:
+            candidate.unlink()
+        except OSError as exc:
+            bus.error(f"Could not delete '{name}': {exc}")
+            self._send(500, "text/plain", b"Could not delete file")
+            return
+        bus.warn(f"'{name}' deleted from the rescue folder via the web page.")
+        self._send(200, "application/json", b'{"deleted": true}')
+
+    def _send_file(self, path):
+        size = path.stat().st_size
+        ascii_name = path.name.encode("ascii", "replace").decode("ascii")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(size))
+        self.send_header(
+            "Content-Disposition",
+            f'attachment; filename="{ascii_name}"; '
+            f"filename*=UTF-8''{quote(path.name)}")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        with open(path, "rb") as fh:
+            while True:
+                chunk = fh.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
 
     # -- plumbing ------------------------------------------------------------
 

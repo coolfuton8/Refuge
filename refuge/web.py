@@ -41,7 +41,16 @@ PAGE_HTML = """<!DOCTYPE html>
   .totals { margin-top: 10px; font-size: .88rem; color: #8a939c; }
   h2 { font-size: 1rem; margin-bottom: 10px; color: #b9c2cb; }
   .received { font-size: .88rem; color: #8a939c; max-height: 220px; overflow-y: auto; }
-  .received div { padding: 4px 0; border-bottom: 1px solid #202830; }
+  .rrow { display: flex; align-items: center; gap: 10px; padding: 4px 0;
+          border-bottom: 1px solid #202830; }
+  .rrow .rname { flex: 1; overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap; color: #4fc3f7; text-decoration: none; }
+  .rrow .rname:hover { text-decoration: underline; }
+  .rrow .rsize { white-space: nowrap; }
+  .rdel { flex: none; width: 22px; height: 22px; line-height: 20px; padding: 0;
+          border: 1px solid #3a4552; border-radius: 5px; background: none;
+          color: #ef6a6a; cursor: pointer; font-size: .95rem; }
+  .rdel:hover { background: #2a1418; border-color: #ef6a6a; }
 </style>
 </head>
 <body>
@@ -174,12 +183,43 @@ PAGE_HTML = """<!DOCTYPE html>
       var box = document.getElementById('received');
       if (files.length === 0) { box.textContent = 'Nothing yet.'; return; }
       box.innerHTML = files.map(function (f) {
-        return '<div>' + esc(f.name) + ' &mdash; ' + fmt(f.size) + '</div>';
+        var href = '/download/' + f.name.split('/').map(encodeURIComponent).join('/');
+        return '<div class="rrow" data-href="' + href + '" data-name="' + esc(f.name) + '">' +
+          '<a class="rname" href="' + href + '" download>' + esc(f.name) + '</a>' +
+          '<span class="rsize">' + fmt(f.size) + '</span>' +
+          '<button class="rdel" title="Delete">&times;</button></div>';
       }).join('');
     };
     xhr.send();
   }
+
+  document.getElementById('received').addEventListener('click', function (e) {
+    var btn = e.target.closest('.rdel');
+    if (!btn) return;
+    var row = btn.closest('.rrow');
+    var href = row.getAttribute('data-href');
+    var name = row.getAttribute('data-name');
+    if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
+    btn.disabled = true;
+    var xhr = new XMLHttpRequest();
+    xhr.open('DELETE', href);
+    xhr.onload = function () {
+      if (xhr.status === 200) {
+        refreshReceived();
+      } else {
+        alert('Could not delete file.');
+        btn.disabled = false;
+      }
+    };
+    xhr.onerror = function () {
+      alert('Could not delete file.');
+      btn.disabled = false;
+    };
+    xhr.send();
+  });
+
   refreshReceived();
+  setInterval(refreshReceived, 5000);
 })();
 </script>
 </body>

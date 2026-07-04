@@ -136,6 +136,13 @@ deny-execute folder ACL). Zip64 is enabled, so files over 4 GB are fine.
   dropped connection never leaves a file that *looks* rescued but isn't.
 - Duplicate names are auto-suffixed (`report (1).xlsx`); nothing is overwritten.
 - Filenames are sanitized server-side (no path traversal from the web page).
+- Each entry in "Files already rescued to this drive" is a link back to that
+  file, streamed to the browser in 64 KiB chunks (same no-path-traversal
+  sanitization as uploads), so a rescued file can be pulled back down through
+  the same page if needed.
+- A &times; button next to each entry deletes that file from the rescue
+  folder (after a confirmation prompt); deletions are logged to the activity
+  log.
 
 ## Firewall
 
