@@ -370,12 +370,15 @@ class RefugeApp:
             candidate.allow_web_delete != self.config.allow_web_delete or
             candidate.require_client_approval != self.config.require_client_approval or
             candidate.single_client_only != self.config.single_client_only)
+        scan_changed = candidate.scan_clients != self.config.scan_clients
         for field, value in vars(candidate).items():
             setattr(self.config, field, value)
         self.config.save()
         self.bus.success("Settings saved.")
         self._render_authcode(self.server.authcodes.current())
         self.server.scanner.enabled = self.config.scan_clients  # takes effect live
+        if scan_changed:
+            self.server.scanner.announce()  # confirm nmap status on toggle
         if restart_server:
             self.bus.info("Restarting server to apply new settings...")
             self.server.stop()

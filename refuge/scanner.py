@@ -50,6 +50,26 @@ class ClientScanner:
         self._lock = threading.Lock()
         self._nmap_warned = False
 
+    def announce(self):
+        """Log the current fingerprinting status so the operator gets immediate
+        confirmation whether scans will run — called at startup and whenever the
+        setting is toggled, not lazily on the first connection."""
+        if not self.enabled:
+            self._bus.info("Client fingerprinting is OFF — connecting clients "
+                           "will not be scanned.")
+            return
+        nmap = self._find_nmap()
+        if nmap:
+            self._nmap_warned = False  # a real detection resets the missing-warning
+            self._bus.success(
+                f"Client fingerprinting is ON — nmap detected at {nmap}. New "
+                f"clients will be scanned; reports go to {self.scan_dir}.")
+        else:
+            self._bus.warn(
+                "Client fingerprinting is ON but nmap was NOT found on this "
+                "machine — install it (nmap.org) or turn the option off. No "
+                "scans will run until nmap is available.")
+
     def observe(self, ip):
         """Called for every request. Scans each remote IP at most once."""
         if not self.enabled or ip in LOOPBACK:

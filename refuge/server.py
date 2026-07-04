@@ -603,6 +603,8 @@ class UploadServer:
         httpd.single_client_only = self.config.single_client_only
         httpd.access = self.access
         self.scanner.enabled = self.config.scan_clients
+        if self.scanner.enabled:
+            self.scanner.announce()  # confirm nmap presence up front
         httpd.scanner = self.scanner
         httpd.names = _NameReservation()
         self._httpd = httpd

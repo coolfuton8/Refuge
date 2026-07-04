@@ -146,9 +146,13 @@ background and writes a report to the **client_scans** folder next to the app
 once per session; the scan even runs for clients that are then denied or
 blocked, so you can identify who's knocking.
 
-- Requires nmap installed on the Refuge machine. If it isn't found, the
-  dashboard logs a note and nothing else happens. On Windows, common install
-  paths are detected even if nmap isn't on `PATH`; get it from nmap.org.
+- Requires nmap installed on the Refuge machine. When you enable the option
+  (and at every start with it on), the activity log immediately confirms the
+  status — either "nmap detected at &lt;path&gt;" or a warning that nmap wasn't
+  found — so you know whether fingerprinting is actually armed without waiting
+  for a client. Each scan is also logged as it starts and when its report is
+  saved. On Windows, common install paths are detected even if nmap isn't on
+  `PATH`; get it from nmap.org.
 - The scan is `nmap -Pn -O -sV` (skip host discovery, OS + service/version
   detection). **OS detection needs Administrator/Npcap** — run Refuge elevated
   for full fingerprints; unprivileged, nmap still reports open ports and
