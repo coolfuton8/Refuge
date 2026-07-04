@@ -152,6 +152,8 @@ class RefugeApp:
                    command=self._open_folder).pack(side="left")
         ttk.Button(actions, text="Open upload page",
                    command=self._open_page).pack(side="left", padx=(8, 0))
+        ttk.Button(actions, text="Open client scans",
+                   command=self._open_scans).pack(side="left", padx=(8, 0))
 
         self._build_authcode_panel(page)
 
@@ -242,6 +244,7 @@ class RefugeApp:
                 value=self.config.require_client_approval),
             "single_client_only": tk.BooleanVar(
                 value=self.config.single_client_only),
+            "scan_clients": tk.BooleanVar(value=self.config.scan_clients),
         }
 
         def row(index, label):
@@ -302,10 +305,15 @@ class RefugeApp:
                        "until it disconnects)",
             variable=self.vars["single_client_only"]).grid(
             row=10, column=1, sticky="w", pady=2)
+        ttk.Checkbutton(
+            form, text="Fingerprint connecting clients with nmap, if installed "
+                       "(saves a report per client for review)",
+            variable=self.vars["scan_clients"]).grid(
+            row=11, column=1, sticky="w", pady=2)
 
         ttk.Button(form, text="Save settings", style="Accent.TButton",
                    command=self._save_settings).grid(
-            row=11, column=1, sticky="w", pady=(16, 0))
+            row=12, column=1, sticky="w", pady=(16, 0))
 
         if sys.platform == "win32":
             hint = ("Tip: if client machines cannot reach the upload page, allow the "
@@ -343,6 +351,7 @@ class RefugeApp:
             allow_web_delete=self.vars["allow_web_delete"].get(),
             require_client_approval=self.vars["require_client_approval"].get(),
             single_client_only=self.vars["single_client_only"].get(),
+            scan_clients=self.vars["scan_clients"].get(),
         )
         problems = candidate.validate()
         if problems:
@@ -366,6 +375,7 @@ class RefugeApp:
         self.config.save()
         self.bus.success("Settings saved.")
         self._render_authcode(self.server.authcodes.current())
+        self.server.scanner.enabled = self.config.scan_clients  # takes effect live
         if restart_server:
             self.bus.info("Restarting server to apply new settings...")
             self.server.stop()
@@ -386,13 +396,19 @@ class RefugeApp:
         threading.Thread(target=target, daemon=True).start()
 
     def _open_folder(self):
-        os.makedirs(self.config.dest_dir, exist_ok=True)
+        self._open_path(self.config.dest_dir)
+
+    def _open_scans(self):
+        self._open_path(str(self.server.scanner.scan_dir))
+
+    def _open_path(self, path):
+        os.makedirs(path, exist_ok=True)
         if sys.platform == "win32":
-            os.startfile(self.config.dest_dir)
+            os.startfile(path)
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", self.config.dest_dir])
+            subprocess.Popen(["open", path])
         else:
-            subprocess.Popen(["xdg-open", self.config.dest_dir])
+            subprocess.Popen(["xdg-open", path])
 
     def _open_page(self):
         webbrowser.open(f"http://127.0.0.1:{self.config.port}/")

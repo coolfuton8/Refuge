@@ -70,6 +70,7 @@ machine.
 | Allow code-authorized delete/overwrite | on | Uncheck to make saved files strictly read-only — see below |
 | Ask before admitting each new client | on | GUI approval popup per new client — see below |
 | Serve only one remote client at a time | on | Others get 404 until the current client disconnects — see below |
+| Fingerprint connecting clients with nmap | off | Saves an nmap report per client for review — see below |
 
 Settings persist to `refuge_config.json` next to the app, so they travel with
 the USB drive. Changing the port, rescue folder, quarantine, or compression
@@ -134,6 +135,27 @@ slot for as long as its page is open; **close the page on the finished machine
 goes through the normal approval process. The operator's own loopback access
 is exempt and always works. Untick the setting to serve multiple clients at
 once.
+
+## Fingerprinting connecting clients (nmap)
+
+If you're seeing connection attempts from machines that shouldn't be there,
+turn on "Fingerprint connecting clients with nmap" in Settings. The first time
+each remote IP contacts the server, Refuge runs an nmap scan against it in the
+background and writes a report to the **client_scans** folder next to the app
+(the "Open client scans" button on the dashboard opens it). Each IP is scanned
+once per session; the scan even runs for clients that are then denied or
+blocked, so you can identify who's knocking.
+
+- Requires nmap installed on the Refuge machine. If it isn't found, the
+  dashboard logs a note and nothing else happens. On Windows, common install
+  paths are detected even if nmap isn't on `PATH`; get it from nmap.org.
+- The scan is `nmap -Pn -O -sV` (skip host discovery, OS + service/version
+  detection). **OS detection needs Administrator/Npcap** — run Refuge elevated
+  for full fingerprints; unprivileged, nmap still reports open ports and
+  service versions and just skips the OS guess.
+- Off by default. nmap sends active probe traffic — only enable it on networks
+  you are authorized to scan. Reports may reveal information about the target;
+  they're kept locally and are git-ignored.
 
 ## Protecting saved files (delete / overwrite authorization)
 
@@ -267,6 +289,7 @@ refuge/
                       Linux no-exec)
   authcode.py         out-of-band delete/overwrite authorization codes
   access.py           GUI-approval admission control for connecting clients
+  scanner.py          optional nmap fingerprinting of connecting clients
   web.py              the embedded single-page upload site
   config.py           JSON config persistence
   events.py           thread-safe event bus feeding the dashboard

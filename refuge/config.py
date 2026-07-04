@@ -23,6 +23,7 @@ class Config:
     allow_web_delete: bool = True
     require_client_approval: bool = True
     single_client_only: bool = True
+    scan_clients: bool = False
 
     @classmethod
     def load(cls):

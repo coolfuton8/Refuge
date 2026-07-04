@@ -20,7 +20,9 @@ from urllib.parse import quote, unquote
 
 from .access import AccessControl
 from .authcode import AuthCodeManager
+from .config import APP_DIR
 from .quarantine import harden_destination, protect_file
+from .scanner import ClientScanner
 from .web import PAGE_HTML
 
 CHUNK_SIZE = 64 * 1024
@@ -214,6 +216,9 @@ class RefugeHandler(BaseHTTPRequestHandler):
         """Admit this request through single-client + GUI-approval gating.
         Denied clients get a 404 (as if the site did not exist)."""
         ip = self.client_address[0]
+        scanner = getattr(self.server, "scanner", None)
+        if scanner is not None:
+            scanner.observe(ip)  # fingerprint even clients we are about to deny
         status = self.server.access.enter(
             ip,
             require_approval=getattr(self.server, "require_client_approval", False),
@@ -570,6 +575,7 @@ class UploadServer:
         # settings-driven server restart.
         self.authcodes = AuthCodeManager(bus)
         self.access = AccessControl(bus)
+        self.scanner = ClientScanner(bus, APP_DIR / "client_scans")
 
     @property
     def running(self):
@@ -596,6 +602,8 @@ class UploadServer:
         httpd.require_client_approval = self.config.require_client_approval
         httpd.single_client_only = self.config.single_client_only
         httpd.access = self.access
+        self.scanner.enabled = self.config.scan_clients
+        httpd.scanner = self.scanner
         httpd.names = _NameReservation()
         self._httpd = httpd
         self._thread = threading.Thread(

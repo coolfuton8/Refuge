@@ -5,6 +5,9 @@ rescued_files/
 # Machine-specific configuration
 refuge_config.json
 
+# nmap client fingerprint reports (local investigation data)
+client_scans/
+
 # Python
 __pycache__/
 *.pyc
