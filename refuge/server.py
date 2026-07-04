@@ -16,6 +16,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from .authcode import AuthCodeManager
 from .quarantine import harden_destination, protect_file
 from .web import PAGE_HTML
 
@@ -209,6 +210,9 @@ class RefugeHandler(BaseHTTPRequestHandler):
             self._send(404, "text/plain", b"Not found")
 
     def do_POST(self):
+        if self.path == "/delete":
+            self._handle_delete()
+            return
         if self.path != "/upload":
             self._send(404, "text/plain", b"Not found")
             return
@@ -238,18 +242,39 @@ class RefugeHandler(BaseHTTPRequestHandler):
         client = self.client_address[0]
         machine = ""
         saved = []
+        # Overwrite of an existing file requires the GUI authorization code.
+        # `ctx` carries the operator's intent and caches the one code check
+        # per request so multiple files can be replaced with a single code.
+        ctx = {"overwrite": False, "code": "", "decision": None}
 
         for headers, body in iter_multipart(reader, boundary):
             params = _disposition_params(headers)
             if "filename" not in params:
                 value = b"".join(body).decode("utf-8", "replace").strip()
-                if params.get("name") == "machine":
+                field = params.get("name")
+                if field == "machine":
                     machine = sanitize_name(value, "") if value else ""
+                elif field == "overwrite":
+                    ctx["overwrite"] = value in ("1", "true", "on", "yes")
+                elif field == "code":
+                    ctx["code"] = value
                 continue
-            saved.append(self._save_file(params["filename"], body, client, machine, length))
+            saved.append(self._save_file(params["filename"], body, client,
+                                         machine, length, ctx))
         return saved
 
-    def _save_file(self, raw_name, body, client, machine, request_size):
+    def _authorize_overwrite(self, target, ctx, client):
+        """Decide whether `target` may be overwritten. The code is verified at
+        most once per request and the result cached in ctx."""
+        if not (self.server.allow_web_delete and ctx["overwrite"]
+                and target.exists()):
+            return False
+        if ctx["decision"] is None:
+            ctx["decision"] = self.server.authcodes.verify(
+                ctx["code"], actor=client)
+        return ctx["decision"] == "ok"
+
+    def _save_file(self, raw_name, body, client, machine, request_size, ctx):
         transfer_id = next(_transfer_ids)
         bus = self.server.bus
         dest_root = Path(self.server.dest_dir)
@@ -257,8 +282,16 @@ class RefugeHandler(BaseHTTPRequestHandler):
         directory.mkdir(parents=True, exist_ok=True)
 
         name = sanitize_name(raw_name, f"unnamed-{transfer_id}")
-        final_path = self.server.names.claim(directory, name)
-        part_path = final_path.with_name(final_path.name + ".part")
+        overwrite = self._authorize_overwrite(directory / name, ctx, client)
+        if overwrite:
+            # Replace the existing file in place (authorized). Write to a unique
+            # temp part first, then atomically swap, so a failed transfer never
+            # damages the file it is replacing.
+            final_path = directory / name
+            part_path = directory / f"{name}.{transfer_id}.part"
+        else:
+            final_path = self.server.names.claim(directory, name)
+            part_path = final_path.with_name(final_path.name + ".part")
 
         bus.emit("transfer_start", id=transfer_id, client=client,
                  name=str(final_path.relative_to(dest_root)), total=request_size)
@@ -281,7 +314,8 @@ class RefugeHandler(BaseHTTPRequestHandler):
             bus.emit("transfer_error", id=transfer_id, written=written)
             raise
         finally:
-            self.server.names.release(final_path)
+            if not overwrite:
+                self.server.names.release(final_path)
 
         stored_path = final_path
         if self.server.compress_to_zip:
@@ -291,7 +325,8 @@ class RefugeHandler(BaseHTTPRequestHandler):
 
         bus.emit("transfer_done", id=transfer_id, written=written,
                  name=str(stored_path.relative_to(dest_root)))
-        bus.success(f"Rescued '{stored_path.name}' "
+        action = "Overwrote (authorized)" if overwrite else "Rescued"
+        bus.success(f"{action} '{stored_path.name}' "
                     f"({written:,} bytes) from {client}"
                     f"{' [' + machine + ']' if machine else ''}")
         return stored_path.name
@@ -320,6 +355,75 @@ class RefugeHandler(BaseHTTPRequestHandler):
                  f"(verified byte-exact, {zip_size:,} bytes on disk); "
                  "original removed.")
         return zip_path
+
+    # -- authorized delete ---------------------------------------------------
+
+    def _resolve_within_dest(self, name):
+        """Resolve a client-supplied relative name to a real path, refusing
+        anything that escapes the rescue folder (path traversal defence)."""
+        if not name:
+            return None
+        root = Path(self.server.dest_dir).resolve()
+        try:
+            candidate = (root / name).resolve()
+            candidate.relative_to(root)
+        except (ValueError, OSError):
+            return None
+        if candidate == root:
+            return None
+        return candidate
+
+    def _handle_delete(self):
+        bus = self.server.bus
+        client = self.client_address[0]
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(length) if 0 < length <= 64 * 1024 else b""
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            name = str(payload.get("name", ""))
+            code = str(payload.get("code", ""))
+        except (ValueError, UnicodeDecodeError):
+            self._send(400, "application/json",
+                       json.dumps({"error": "Bad request."}).encode())
+            return
+
+        if not self.server.allow_web_delete:
+            bus.warn(f"Delete of '{name}' from {client} refused: web "
+                     "delete/overwrite is disabled in Settings.")
+            self._send(403, "application/json",
+                       json.dumps({"error": "Delete is disabled on this server."}).encode())
+            return
+
+        target = self._resolve_within_dest(name)
+        if target is None or not target.is_file() or target.name.endswith(".part"):
+            self._send(404, "application/json",
+                       json.dumps({"error": "File not found."}).encode())
+            return
+
+        result = self.server.authcodes.verify(code, actor=client)
+        if result == "locked":
+            self._send(423, "application/json", json.dumps(
+                {"error": "Locked: too many invalid codes. Wait, then use the "
+                          "new code shown on the rescue machine."}).encode())
+            return
+        if result != "ok":
+            self._send(403, "application/json", json.dumps(
+                {"error": "Invalid or expired authorization code. Read the "
+                          "current code from the rescue machine's screen."}).encode())
+            return
+
+        try:
+            target.unlink()
+        except OSError as exc:
+            bus.error(f"Delete of '{name}' failed: {exc}")
+            self._send(500, "application/json",
+                       json.dumps({"error": "Delete failed on the server."}).encode())
+            return
+
+        bus.success(f"Deleted '{name}' by GUI authorization (requested from "
+                    f"{client}). A new authorization code is now shown.")
+        bus.emit("file_deleted", name=name, client=client)
+        self._send(200, "application/json", json.dumps({"deleted": name}).encode())
 
     def _list_received(self):
         root = Path(self.server.dest_dir)
@@ -374,6 +478,9 @@ class UploadServer:
         self.config = config
         self._httpd = None
         self._thread = None
+        # The authorization code lives on the long-lived UploadServer (not the
+        # per-start httpd) so it survives a settings-driven server restart.
+        self.authcodes = AuthCodeManager(bus)
 
     @property
     def running(self):
@@ -395,6 +502,8 @@ class UploadServer:
         httpd.dest_dir = self.config.dest_dir
         httpd.block_execution = self.config.block_execution
         httpd.compress_to_zip = self.config.compress_to_zip
+        httpd.allow_web_delete = self.config.allow_web_delete
+        httpd.authcodes = self.authcodes
         httpd.names = _NameReservation()
         self._httpd = httpd
         self._thread = threading.Thread(

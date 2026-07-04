@@ -56,6 +56,7 @@ If every method fails, the dashboard log tells you why.
 | Autostart server | on | Start listening at launch |
 | Block execution of rescued files | on | Quarantine the rescue folder — see below |
 | Compress each rescued file into a .zip | off | Verify-then-delete original — see below |
+| Allow code-authorized delete/overwrite | on | Uncheck to make saved files strictly read-only — see below |
 
 Settings persist to `refuge_config.json` next to the app, so they travel with
 the USB drive. Changing the port, rescue folder, quarantine, or compression
@@ -74,6 +75,8 @@ guessing during a rescue:
   messages only when you're already scrolled to the bottom, so reading an
   error isn't interrupted by incoming transfers; scroll back down to resume
   following. Kept to the last 5000 lines.
+- **Authorization code** — the 6-character code required to delete or
+  overwrite a saved file from the web page (see below).
 
 **All errors surface here.** Because Refuge normally runs windowless (via
 `pythonw`, so no console exists), errors that would otherwise vanish to
@@ -81,6 +84,44 @@ stderr — HTTP server-thread failures, client machines dropping mid-transfer,
 disk/compression failures, and internal UI errors — are all routed into the
 activity log instead. A "Open rescue folder" and "Open upload page" button sit
 above the transfer list.
+
+## Protecting saved files (delete / overwrite authorization)
+
+The machine you're rescuing files *from* may be infected — possibly with a
+remote-access trojan actively driving that computer. Refuge assumes the web
+side is hostile and protects files that are already on the rescue drive:
+
+- **Uploads never overwrite.** A file whose name already exists is saved as a
+  numbered copy (`report (1).xlsx`); an upload can't silently replace or
+  corrupt an existing rescued file.
+- **Deleting or overwriting an existing file requires a one-time code shown
+  only on the rescue machine's GUI.** The web page has a field to enter it.
+  Because the code is displayed on the operator's screen — which an attacker
+  on the *client* machine cannot see — only the person physically at the
+  rescue laptop can authorize a destructive action. This is an out-of-band
+  confirmation: driving the web interface is not enough.
+
+How it behaves:
+
+- The current 6-character code is shown on the Dashboard (unambiguous
+  characters only — no `O`/`0` or `I`/`1` to misread). It **changes after
+  every successful delete or overwrite**, so each destructive action needs a
+  fresh look at the screen and a used code can't be replayed.
+- Wrong codes are rejected, logged, and after a few rapid failures the
+  destructive endpoints **lock for ~60 seconds** (the dashboard warns you —
+  it may be an attack from the client machine). Combined with the code space
+  this makes brute force over HTTP infeasible. The **New code** button clears
+  a lockout and issues a fresh code.
+- To overwrite instead of making a numbered copy, tick "Overwrite files that
+  already exist" on the web page and enter the code; without a valid code the
+  overwrite is ignored and the upload is saved as a numbered copy instead.
+- **Uncheck "Allow code-authorized delete/overwrite" in Settings** to remove
+  the capability entirely — saved files become strictly read-only from the
+  web page and the code panel shows `OFF`.
+
+Threat model: this defends against a compromised *client* (uploading) machine.
+It does not defend the rescue laptop itself — if that machine is compromised,
+the attacker can see the screen and all bets are off.
 
 ## Execution safeguard (quarantine)
 
@@ -123,8 +164,10 @@ deny-execute folder ACL). Zip64 is enabled, so files over 4 GB are fine.
   held in memory.
 - Files are written as `<name>.part` and renamed only when complete, so a
   dropped connection never leaves a file that *looks* rescued but isn't.
-- Duplicate names are auto-suffixed (`report (1).xlsx`); nothing is overwritten.
-- Filenames are sanitized server-side (no path traversal from the web page).
+- Duplicate names are auto-suffixed (`report (1).xlsx`); nothing is
+  overwritten without the GUI authorization code (see above).
+- Filenames are sanitized server-side, and delete/overwrite targets are
+  confined to the rescue folder (no path traversal from the web page).
 
 ## Firewall
 
@@ -167,6 +210,7 @@ refuge/
                       (Windows WinRT/netsh, Linux nmcli)
   quarantine.py       execution safeguards (deny-execute ACL, Mark-of-the-Web,
                       Linux no-exec)
+  authcode.py         out-of-band delete/overwrite authorization codes
   web.py              the embedded single-page upload site
   config.py           JSON config persistence
   events.py           thread-safe event bus feeding the dashboard

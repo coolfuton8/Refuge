@@ -20,6 +20,11 @@ PAGE_HTML = """<!DOCTYPE html>
   input[type=text] { width: 100%; padding: 10px 12px; border-radius: 6px;
           border: 1px solid #2a323c; background: #10151a; color: #e6e9ec;
           font-size: 1rem; }
+  #authcode { text-transform: uppercase; letter-spacing: 3px;
+          font-family: 'Consolas', monospace; max-width: 200px; }
+  .check { display: flex; align-items: center; gap: 8px; color: #b9c2cb;
+          font-size: .9rem; margin-top: 12px; }
+  .check input { width: auto; }
   #drop { border: 2px dashed #3a4552; border-radius: 10px; padding: 40px 20px;
           text-align: center; cursor: pointer; transition: all .15s; }
   #drop.hover { border-color: #4fc3f7; background: #16202a; }
@@ -39,9 +44,20 @@ PAGE_HTML = """<!DOCTYPE html>
           transition: width .2s; }
   .ok { color: #66d179; } .err { color: #ef6a6a; } .busy { color: #4fc3f7; }
   .totals { margin-top: 10px; font-size: .88rem; color: #8a939c; }
-  h2 { font-size: 1rem; margin-bottom: 10px; color: #b9c2cb; }
-  .received { font-size: .88rem; color: #8a939c; max-height: 220px; overflow-y: auto; }
-  .received div { padding: 4px 0; border-bottom: 1px solid #202830; }
+  h2 { font-size: 1rem; margin-bottom: 4px; color: #b9c2cb; }
+  .hint { font-size: .8rem; color: #6c757d; margin-bottom: 10px; }
+  .received { font-size: .88rem; color: #8a939c; max-height: 260px; overflow-y: auto; }
+  .rrow { display: flex; align-items: center; gap: 10px; padding: 6px 0;
+          border-bottom: 1px solid #202830; }
+  .rrow .rname { flex: 1; overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap; color: #cdd4db; }
+  .rrow .rsize { color: #8a939c; white-space: nowrap; }
+  button { background: #2a323c; color: #e6e9ec; border: 1px solid #3a4552;
+          border-radius: 6px; padding: 5px 12px; font-size: .82rem; cursor: pointer; }
+  button:hover { background: #37414d; }
+  button.del { color: #ef8a8a; border-color: #5a3236; }
+  button.del:hover { background: #3a2226; }
+  #delmsg { font-size: .84rem; margin-top: 8px; min-height: 1.1em; }
 </style>
 </head>
 <body>
@@ -65,6 +81,19 @@ PAGE_HTML = """<!DOCTYPE html>
   </div>
 
   <div class="card">
+    <h2>Delete / overwrite authorization</h2>
+    <div class="hint">Deleting or overwriting a file that already exists on the
+      rescue drive requires the 6-character code shown <strong>on the rescue
+      machine's screen</strong>. This protects saved files even if this
+      computer is compromised. The code changes after each use.</div>
+    <label for="authcode">Authorization code</label>
+    <input type="text" id="authcode" maxlength="6" placeholder="ABC234" autocomplete="off">
+    <label class="check"><input type="checkbox" id="overwrite">
+      Overwrite files that already exist (instead of saving a numbered copy)</label>
+    <div id="delmsg"></div>
+  </div>
+
+  <div class="card">
     <h2>Files already rescued to this drive</h2>
     <div class="received" id="received">Loading&hellip;</div>
   </div>
@@ -76,6 +105,7 @@ PAGE_HTML = """<!DOCTYPE html>
   var input = document.getElementById('fileInput');
   var list = document.getElementById('list');
   var totals = document.getElementById('totals');
+  var delmsg = document.getElementById('delmsg');
   var queue = [];
   var uploading = false;
   var doneCount = 0, doneBytes = 0;
@@ -85,6 +115,8 @@ PAGE_HTML = """<!DOCTYPE html>
     while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
     return bytes.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
   }
+
+  function code() { return document.getElementById('authcode').value.trim().toUpperCase(); }
 
   drop.addEventListener('click', function () { input.click(); });
   input.addEventListener('change', function () { enqueue(input.files); input.value = ''; });
@@ -125,8 +157,10 @@ PAGE_HTML = """<!DOCTYPE html>
     state.textContent = 'uploading';
     state.className = 'state busy';
 
+    var overwrite = document.getElementById('overwrite').checked;
     var form = new FormData();
     form.append('machine', document.getElementById('machine').value);
+    if (overwrite) { form.append('overwrite', '1'); form.append('code', code()); }
     form.append('file', job.file, job.file.name);
 
     var xhr = new XMLHttpRequest();
@@ -144,6 +178,7 @@ PAGE_HTML = """<!DOCTYPE html>
         state.textContent = 'saved ✓';
         state.className = 'state ok';
         doneCount++; doneBytes += job.file.size;
+        if (overwrite) { document.getElementById('authcode').value = ''; }
         refreshReceived();
       } else {
         state.textContent = 'failed';
@@ -165,6 +200,32 @@ PAGE_HTML = """<!DOCTYPE html>
     pump();
   }
 
+  window.refugeDelete = function (name) {
+    if (!code()) { showDel('Enter the authorization code from the rescue machine first.', true); return; }
+    if (!confirm('Delete "' + name + '" from the rescue drive? This cannot be undone.')) return;
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/delete');
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = function () {
+      var msg = '';
+      try { msg = JSON.parse(xhr.responseText).error || ''; } catch (e) {}
+      if (xhr.status === 200) {
+        showDel('Deleted. The authorization code has changed - read the new one on the rescue machine.', false);
+        document.getElementById('authcode').value = '';
+        refreshReceived();
+      } else {
+        showDel(msg || ('Delete failed (' + xhr.status + ').'), true);
+      }
+    };
+    xhr.onerror = function () { showDel('Could not reach the server.', true); };
+    xhr.send(JSON.stringify({ name: name, code: code() }));
+  };
+
+  function showDel(text, isErr) {
+    delmsg.textContent = text;
+    delmsg.className = isErr ? 'err' : 'ok';
+  }
+
   function refreshReceived() {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', '/files');
@@ -173,9 +234,18 @@ PAGE_HTML = """<!DOCTYPE html>
       var files = JSON.parse(xhr.responseText);
       var box = document.getElementById('received');
       if (files.length === 0) { box.textContent = 'Nothing yet.'; return; }
-      box.innerHTML = files.map(function (f) {
-        return '<div>' + esc(f.name) + ' &mdash; ' + fmt(f.size) + '</div>';
-      }).join('');
+      box.innerHTML = '';
+      files.forEach(function (f) {
+        var row = document.createElement('div');
+        row.className = 'rrow';
+        row.innerHTML = '<span class="rname">' + esc(f.name) + '</span>' +
+          '<span class="rsize">' + fmt(f.size) + '</span>' +
+          '<button class="del">Delete</button>';
+        row.querySelector('button').addEventListener('click', function () {
+          window.refugeDelete(f.name);
+        });
+        box.appendChild(row);
+      });
     };
     xhr.send();
   }

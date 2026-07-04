@@ -20,6 +20,7 @@ class Config:
     autostart_server: bool = True
     block_execution: bool = True
     compress_to_zip: bool = False
+    allow_web_delete: bool = True
 
     @classmethod
     def load(cls):

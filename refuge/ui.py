@@ -151,6 +151,8 @@ class RefugeApp:
         ttk.Button(actions, text="Open upload page",
                    command=self._open_page).pack(side="left", padx=(8, 0))
 
+        self._build_authcode_panel(page)
+
         columns = ("time", "client", "file", "size", "status")
         tree_frame = ttk.Frame(page)
         tree_frame.pack(fill="both", expand=True)
@@ -182,6 +184,33 @@ class RefugeApp:
                            ("error", BAD), ("success", GOOD)):
             self.log.tag_configure(tag, foreground=color)
 
+    def _build_authcode_panel(self, page):
+        panel = ttk.Frame(page, style="Panel.TFrame", padding=(16, 12))
+        panel.pack(fill="x", pady=(0, 10))
+
+        left = ttk.Frame(panel, style="Panel.TFrame")
+        left.pack(side="left")
+        ttk.Label(left, text="DELETE / OVERWRITE AUTHORIZATION CODE",
+                  style="Muted.TLabel").pack(anchor="w")
+        self.code_label = tk.Label(left, text="------", bg=PANEL, fg=ACCENT,
+                                   font=("Consolas", 26, "bold"))
+        self.code_label.pack(anchor="w")
+        self.code_hint = ttk.Label(
+            left, style="Muted.TLabel",
+            text="Type this on the web page to delete or overwrite a saved "
+                 "file. Changes after each use.")
+        self.code_hint.pack(anchor="w")
+
+        right = ttk.Frame(panel, style="Panel.TFrame")
+        right.pack(side="right")
+        self.code_button = ttk.Button(right, text="New code",
+                                      command=self._new_authcode)
+        self.code_button.pack()
+
+    def _new_authcode(self):
+        self.server.authcodes.reset()
+        self.bus.info("Authorization code manually refreshed from the GUI.")
+
     def _stat_tile(self, parent, caption):
         tile = ttk.Frame(parent, style="Panel.TFrame", padding=(16, 10))
         tile.pack(side="left", fill="x", expand=True, padx=(0, 8))
@@ -206,6 +235,7 @@ class RefugeApp:
             "autostart_server": tk.BooleanVar(value=self.config.autostart_server),
             "block_execution": tk.BooleanVar(value=self.config.block_execution),
             "compress_to_zip": tk.BooleanVar(value=self.config.compress_to_zip),
+            "allow_web_delete": tk.BooleanVar(value=self.config.allow_web_delete),
         }
 
         def row(index, label):
@@ -251,10 +281,15 @@ class RefugeApp:
                        "(verified byte-exact, then original is removed)",
             variable=self.vars["compress_to_zip"]).grid(
             row=7, column=1, sticky="w", pady=2)
+        ttk.Checkbutton(
+            form, text="Allow code-authorized delete/overwrite from the web page "
+                       "(uncheck to make saved files strictly read-only)",
+            variable=self.vars["allow_web_delete"]).grid(
+            row=8, column=1, sticky="w", pady=2)
 
         ttk.Button(form, text="Save settings", style="Accent.TButton",
                    command=self._save_settings).grid(
-            row=8, column=1, sticky="w", pady=(16, 0))
+            row=9, column=1, sticky="w", pady=(16, 0))
 
         if sys.platform == "win32":
             hint = ("Tip: if client machines cannot reach the upload page, allow the "
@@ -289,6 +324,7 @@ class RefugeApp:
             autostart_server=self.vars["autostart_server"].get(),
             block_execution=self.vars["block_execution"].get(),
             compress_to_zip=self.vars["compress_to_zip"].get(),
+            allow_web_delete=self.vars["allow_web_delete"].get(),
         )
         problems = candidate.validate()
         if problems:
@@ -303,11 +339,13 @@ class RefugeApp:
             candidate.port != self.config.port or
             candidate.dest_dir != self.config.dest_dir or
             candidate.block_execution != self.config.block_execution or
-            candidate.compress_to_zip != self.config.compress_to_zip)
+            candidate.compress_to_zip != self.config.compress_to_zip or
+            candidate.allow_web_delete != self.config.allow_web_delete)
         for field, value in vars(candidate).items():
             setattr(self.config, field, value)
         self.config.save()
         self.bus.success("Settings saved.")
+        self._render_authcode(self.server.authcodes.current())
         if restart_server:
             self.bus.info("Restarting server to apply new settings...")
             self.server.stop()
@@ -391,6 +429,30 @@ class RefugeApp:
         instead of an invisible stderr (pythonw has no console)."""
         self._append_log("error",
                          f"UI error: {exc_type.__name__}: {exc_value}")
+
+    def _on_authcode(self, event):
+        self._render_authcode(event.data["code"], event.data.get("locked", False))
+
+    def _render_authcode(self, code, locked=False):
+        """Show the current code, or a locked/disabled state."""
+        if not self.config.allow_web_delete:
+            self.code_label.configure(text="OFF", fg=MUTED)
+            self.code_hint.configure(
+                text="Web delete/overwrite is disabled - saved files are "
+                     "read-only from the web page.")
+            self.code_button.state(["disabled"])
+            return
+        self.code_button.state(["!disabled"])
+        if locked:
+            self.code_label.configure(text=code, fg=BAD)
+            self.code_hint.configure(
+                text="LOCKED: too many invalid attempts. Wait ~60s or press "
+                     "New code. Someone may be attacking from the client.")
+        else:
+            self.code_label.configure(text=code, fg=ACCENT)
+            self.code_hint.configure(
+                text="Type this on the web page to delete or overwrite a saved "
+                     "file. Changes after each use.")
 
     def _on_server_state(self, event):
         running = event.data["running"]
@@ -477,6 +539,7 @@ class RefugeApp:
     def run(self):
         self.bus.info(f"Refuge {__version__} ready. "
                       f"Rescue folder: {self.config.dest_dir}")
+        self._render_authcode(self.server.authcodes.current())
         state, addresses = network_state(False)
         self.bus.emit("network_state", state=state, addresses=addresses)
         if self.config.autostart_server:
