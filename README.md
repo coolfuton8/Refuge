@@ -155,6 +155,28 @@ report already exists there and skips it if so — so a host is never re-scanned
 even after Refuge is restarted. There's no separate index file. To deliberately
 re-scan a host, delete its report from the folder.
 
+**What the report tells you.** The scan is aimed at identifying *what kind of
+device* is connecting — a router / Wi-Fi AP, IP camera / DVR, switch, printer,
+NAS, PC, IoT gadget, etc. Each report opens with a **LIKELY DEVICE TYPE** line
+and the signals behind the guess, then the details. The guess combines:
+
+- the **MAC/OUI vendor** nmap reports for a same-subnet host (e.g. Hikvision →
+  camera, Ubiquiti/TP-Link → router/AP, Cisco → switch) — needs Admin/Npcap;
+- **open management ports** (RTSP 554 → camera, TR-069 7547 → router, IPP 631 /
+  9100 → printer, RDP 3389 → Windows, …);
+- nmap **service/version and NSE scripts** (`-A --version-all` plus http, ssl,
+  rtsp, upnp, snmp scripts across a curated device-port list);
+- a built-in **HTTP probe**: Refuge fetches the device's web ports (80/81/443/
+  8000/8008/8080/8443/8888) and records the `Server` header, auth realm, and
+  page title — often the clearest tell (`GoAhead-Webs`, `RomPager`,
+  `realm="IPCamera"`, `<title>RouterOS</title>`, …).
+
+The device-type guess is also shown in the activity log when the scan finishes.
+It's a best-effort heuristic — the report lists the raw signals so you can
+judge for yourself. A deep scan takes longer than a plain one (up to a few
+minutes per host); run Refuge **as Administrator** for OS detection and the MAC
+vendor.
+
 Fingerprinting happens at the TCP-connection level, so it catches **every**
 connection attempt — not just well-formed web requests. A port scanner, a
 service probe, or anything that opens the socket without sending a valid HTTP
@@ -168,10 +190,11 @@ That's what lets you identify a machine that's merely "knocking" on the port.
   for a client. Each scan is also logged as it starts and when its report is
   saved. On Windows, common install paths are detected even if nmap isn't on
   `PATH`; get it from nmap.org.
-- The scan is `nmap -Pn -O -sV` (skip host discovery, OS + service/version
-  detection). **OS detection needs Administrator/Npcap** — run Refuge elevated
-  for full fingerprints; unprivileged, nmap still reports open ports and
-  service versions and just skips the OS guess.
+- The scan is `nmap -Pn -A --version-all` with a curated device `--script` set
+  over device-management ports, plus Refuge's own HTTP probe. **OS detection
+  and the MAC vendor need Administrator/Npcap** — run Refuge elevated for full
+  fingerprints; unprivileged, nmap still reports open ports, service versions,
+  script output, and the HTTP probe still works.
 - Off by default. nmap sends active probe traffic — only enable it on networks
   you are authorized to scan. Reports may reveal information about the target;
   they're kept locally and are git-ignored.
