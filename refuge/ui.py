@@ -1,6 +1,7 @@
 """Tkinter front end: configuration editor plus a live activity dashboard."""
 
 import datetime
+import ipaddress
 import os
 import subprocess
 import sys
@@ -48,6 +49,7 @@ class RefugeApp:
         self.net_state = None  # last state reported by the network monitor
         self._prompt_queue = []  # pending client-approval popups (ip, hostname)
         self._active_prompt = None
+        self._blocklist_dialog = None
 
         self.root = tk.Tk()
         self.root.title(f"Refuge {__version__} - Emergency File Rescue")
@@ -154,6 +156,8 @@ class RefugeApp:
                    command=self._open_page).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Open client scans",
                    command=self._open_scans).pack(side="left", padx=(8, 0))
+        ttk.Button(actions, text="Blocked clients…",
+                   command=self._open_blocklist).pack(side="left", padx=(8, 0))
 
         self._build_authcode_panel(page)
 
@@ -403,6 +407,87 @@ class RefugeApp:
 
     def _open_scans(self):
         self._open_path(str(self.server.scanner.scan_dir))
+
+    def _open_blocklist(self):
+        """Manage the connection-level blocklist (block/unblock IPs identified
+        from the scan reports). Blocked IPs have their TCP connection dropped."""
+        if getattr(self, "_blocklist_dialog", None) is not None:
+            try:
+                self._blocklist_dialog.lift()
+                return
+            except tk.TclError:
+                self._blocklist_dialog = None
+
+        dlg = tk.Toplevel(self.root)
+        self._blocklist_dialog = dlg
+        dlg.title("Refuge - Blocked clients")
+        dlg.configure(bg=PANEL)
+        dlg.transient(self.root)
+        body = ttk.Frame(dlg, style="Panel.TFrame", padding=16)
+        body.pack(fill="both", expand=True)
+
+        ttk.Label(body, text="Block a client IP (its connections will be dropped "
+                             "for this session):", style="Muted.TLabel").pack(anchor="w")
+        entry_row = ttk.Frame(body, style="Panel.TFrame")
+        entry_row.pack(fill="x", pady=(4, 10))
+        ip_var = tk.StringVar()
+        entry = ttk.Entry(entry_row, textvariable=ip_var, width=26)
+        entry.pack(side="left")
+        entry.focus_set()
+
+        listbox = tk.Listbox(body, height=8, bg=BG, fg=FG, relief="flat",
+                             selectbackground="#31536a", activestyle="none",
+                             highlightthickness=0)
+        msg = ttk.Label(body, style="Muted.TLabel", text="")
+
+        def refresh():
+            listbox.delete(0, "end")
+            for ip in self.server.access.blocked_ips():
+                listbox.insert("end", ip)
+
+        def do_block():
+            raw = ip_var.get().strip()
+            try:
+                ipaddress.ip_address(raw)
+            except ValueError:
+                msg.configure(text=f"'{raw}' is not a valid IP address.")
+                return
+            self.server.access.block(raw)
+            ip_var.set("")
+            msg.configure(text=f"Blocked {raw}.")
+            refresh()
+
+        def do_unblock():
+            sel = listbox.curselection()
+            if not sel:
+                msg.configure(text="Select a blocked IP to unblock.")
+                return
+            ip = listbox.get(sel[0])
+            self.server.access.unblock(ip)
+            msg.configure(text=f"Unblocked {ip}.")
+            refresh()
+
+        def on_close():
+            self._blocklist_dialog = None
+            dlg.destroy()
+
+        ttk.Button(entry_row, text="Block", style="Accent.TButton",
+                   command=do_block).pack(side="left", padx=(8, 0))
+        entry.bind("<Return>", lambda _e: do_block())
+        ttk.Label(body, text="Currently blocked:",
+                  style="Muted.TLabel").pack(anchor="w")
+        listbox.pack(fill="both", expand=True, pady=(2, 8))
+        buttons = ttk.Frame(body, style="Panel.TFrame")
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Unblock selected",
+                   command=do_unblock).pack(side="left")
+        ttk.Button(buttons, text="Refresh", command=refresh).pack(side="left",
+                                                                  padx=(8, 0))
+        ttk.Button(buttons, text="Close", command=on_close).pack(side="right")
+        msg.pack(anchor="w", pady=(8, 0))
+
+        dlg.protocol("WM_DELETE_WINDOW", on_close)
+        refresh()
 
     def _open_path(self, path):
         os.makedirs(path, exist_ok=True)

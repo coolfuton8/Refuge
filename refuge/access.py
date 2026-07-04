@@ -52,6 +52,56 @@ class AccessControl:
         self._active_inflight = 0       # requests currently being handled for it
         self._active_last_seen = 0.0
         self._busy_logged = {}          # ip -> ts of last "busy" log line
+        self._blocked_drop_logged = {}  # ip -> ts of last "dropped" log line
+
+    # -- connection-level blocklist (operator-driven, from scan findings) -----
+
+    def connection_refused(self, ip):
+        """True if `ip` is on the blocklist — its TCP connection should be
+        dropped before any HTTP is read. Logs at a throttled rate so a client
+        hammering the port cannot flood the log. Loopback is never refused."""
+        if ip in LOOPBACK:
+            return False
+        now = time.time()
+        with self._lock:
+            if ip not in self._blocked:
+                return False
+            show = now - self._blocked_drop_logged.get(ip, 0) > BUSY_LOG_INTERVAL
+            if show:
+                self._blocked_drop_logged[ip] = now
+        if show:
+            self._bus.warn(f"Dropped connection from blocked client {ip} "
+                           "(connection-level blocklist).")
+        return True
+
+    def block(self, ip):
+        """Block an IP for the rest of this session. Returns True if newly added."""
+        with self._lock:
+            newly = ip not in self._blocked
+            self._blocked.add(ip)
+            self._allowed.discard(ip)
+            self._cooldown.pop(ip, None)
+            if self._active_ip == ip:      # release the slot if it held it
+                self._active_ip = None
+                self._active_inflight = 0
+                self._active_last_seen = 0.0
+        if newly:
+            self._bus.warn(f"Client {ip} blocked — its connections will be "
+                           "dropped for the rest of this session.")
+        return newly
+
+    def unblock(self, ip):
+        with self._lock:
+            existed = ip in self._blocked
+            self._blocked.discard(ip)
+            self._blocked_drop_logged.pop(ip, None)
+        if existed:
+            self._bus.info(f"Client {ip} unblocked — it may connect again.")
+        return existed
+
+    def blocked_ips(self):
+        with self._lock:
+            return sorted(self._blocked)
 
     # -- single-client admission (called from HTTP worker threads) ----------
 

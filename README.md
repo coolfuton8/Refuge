@@ -171,6 +171,29 @@ That's what lets you identify a machine that's merely "knocking" on the port.
   you are authorized to scan. Reports may reveal information about the target;
   they're kept locally and are git-ignored.
 
+### Blocking a client (connection-level blocklist)
+
+Once you've identified a machine that shouldn't be connecting, block it with
+the **"Blocked clients…"** button on the dashboard: type its IP and click
+Block (the same dialog lists blocked IPs and lets you unblock them). A blocked
+IP has its **TCP connection dropped outright** — before any HTTP is read, so it
+gets nothing back at all, not even a 404. Ticking "Always block this IP/client"
+on an approval popup blocks the same way.
+
+Notes:
+
+- Blocks apply at the connection level, so they stop bare probes and
+  half-open "knocks", not just web requests.
+- Dropped connections are logged (rate-limited so a hammering host can't flood
+  the log).
+- Blocks last for the session (in memory) and are cleared when Refuge closes —
+  consistent with the approval decisions. Your own machine (loopback) can never
+  be blocked, so you can't lock yourself out.
+- Why a blocked probe still doesn't produce an *approval popup*: the popup is
+  an HTTP-request-level decision, and these connection attempts never send a
+  valid HTTP request. Fingerprinting and blocking are the connection-level
+  tools for them.
+
 ## Protecting saved files (delete / overwrite authorization)
 
 The machine you're rescuing files *from* may be infected — possibly with a

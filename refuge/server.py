@@ -551,15 +551,21 @@ class _RefugeHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def verify_request(self, request, client_address):
-        # Fingerprint every connection attempt at the socket level, before any
-        # HTTP parsing. Probes that open a TCP connection but never send a valid
-        # HTTP request never reach do_GET/do_POST, so scanning here (not in the
-        # request handler) is what catches them. Always returns True; actual
-        # admission/404 stays at the HTTP layer for well-formed requests.
+        # Runs for every accepted connection, before any HTTP parsing.
+        ip = client_address[0]
+        # Connection-level blocklist: drop the TCP connection outright so a
+        # blocked host can't even reach the HTTP layer (no 404 — nothing).
+        access = getattr(self, "access", None)
+        if access is not None and access.connection_refused(ip):
+            return False
+        # Fingerprint every other connection attempt at the socket level —
+        # probes that never send a valid HTTP request are caught here, not in
+        # the request handlers. Always returns True for these; HTTP-level
+        # admission/404 still applies to well-formed requests.
         scanner = getattr(self, "scanner", None)
         if scanner is not None:
             try:
-                scanner.observe(client_address[0])
+                scanner.observe(ip)
             except Exception:
                 pass
         return True
