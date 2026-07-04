@@ -45,6 +45,17 @@ Hotspot support is best-effort:
 
 If every method fails, the dashboard log tells you why.
 
+**Not every Wi-Fi adapter can host a hotspot.** Access Point mode is a driver
+and firmware feature, and some chipsets (older Intel cards in particular)
+don't support it at all — NetworkManager will fail every attempt with an
+error like "Hotspot network creation took too long" / "supplicant took too
+long to authenticate". If Auto-hotspot is on and the machine has no other
+network, Refuge will keep retrying that failing hotspot every few seconds
+(and keep logging the same error) for as long as it stays offline. If you see
+this, the fix isn't in Refuge's settings — try a different Wi-Fi adapter (a
+USB Wi-Fi dongle with confirmed AP-mode support works well) on the Refuge
+machine.
+
 ## Configuration (Settings tab)
 
 | Setting | Default | Notes |

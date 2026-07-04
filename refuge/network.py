@@ -188,7 +188,9 @@ class Hotspot:
                     self.bus.error(
                         "Could not start a hotspot with either method. "
                         "Check that Wi-Fi is enabled; the legacy method also needs "
-                        "Refuge to run as Administrator.")
+                        "Refuge to run as Administrator. Some Wi-Fi adapters don't "
+                        "support hotspot mode at all - if this keeps failing, try a "
+                        "different Wi-Fi adapter.")
                     self.bus.emit("hotspot_state", active=False, method=None)
                     return False
             else:
@@ -198,7 +200,9 @@ class Hotspot:
                     self.bus.error(
                         "Could not start a hotspot via NetworkManager. Check that "
                         "a Wi-Fi adapter is present and managed by NetworkManager "
-                        "(nmcli device).")
+                        "(nmcli device). Some Wi-Fi adapters don't support hotspot "
+                        "mode at all - if this keeps failing, try a different Wi-Fi "
+                        "adapter.")
                     self.bus.emit("hotspot_state", active=False, method=None)
                     return False
             self.bus.success(
