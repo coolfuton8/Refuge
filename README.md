@@ -68,6 +68,7 @@ machine.
 | Block execution of rescued files | on | Quarantine the rescue folder — see below |
 | Compress each rescued file into a .zip | off | Verify-then-delete original — see below |
 | Allow code-authorized delete/overwrite | on | Uncheck to make saved files strictly read-only — see below |
+| Ask before admitting each new client | on | GUI approval popup per new client — see below |
 
 Settings persist to `refuge_config.json` next to the app, so they travel with
 the USB drive. Changing the port, rescue folder, quarantine, or compression
@@ -95,6 +96,27 @@ stderr — HTTP server-thread failures, client machines dropping mid-transfer,
 disk/compression failures, and internal UI errors — are all routed into the
 activity log instead. A "Open rescue folder" and "Open upload page" button sit
 above the transfer list.
+
+## Admitting clients (GUI approval)
+
+With "Ask before admitting each new client" on (the default), the first time a
+new client tries to load the page a popup appears **on the Refuge machine**
+naming the client — its reverse-DNS name (best effort) and IP — and asks
+whether to allow it. Nothing is served until you answer:
+
+- **Allow** — the client is admitted for the rest of the session; it won't ask
+  again for that IP.
+- **Deny** — the client gets a **404** (as if the site didn't exist). It's
+  silently refused for a short cooldown, then may prompt again.
+- **Deny with "Always block this IP/client"** ticked — the IP is 404'd for the
+  rest of the session with no further popups.
+
+Every decision is written to the activity log. Decisions last as long as
+Refuge is running; closing the app forgets them. The operator's own machine
+(loopback / "Open upload page") is always admitted without a prompt. Untick
+the setting to admit everyone automatically (useful on a trusted LAN with many
+clients). Because a denied client only ever sees a 404, a hostile machine
+can't tell Refuge is even there.
 
 ## Protecting saved files (delete / overwrite authorization)
 
@@ -227,6 +249,7 @@ refuge/
   quarantine.py       execution safeguards (deny-execute ACL, Mark-of-the-Web,
                       Linux no-exec)
   authcode.py         out-of-band delete/overwrite authorization codes
+  access.py           GUI-approval admission control for connecting clients
   web.py              the embedded single-page upload site
   config.py           JSON config persistence
   events.py           thread-safe event bus feeding the dashboard

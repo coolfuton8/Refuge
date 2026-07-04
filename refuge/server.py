@@ -10,6 +10,7 @@ import itertools
 import json
 import os
 import re
+import socket
 import sys
 import threading
 import zipfile
@@ -17,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote
 
+from .access import AccessControl
 from .authcode import AuthCodeManager
 from .quarantine import harden_destination, protect_file
 from .web import PAGE_HTML
@@ -199,9 +201,29 @@ class RefugeHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "Refuge"
 
+    # -- admission control ---------------------------------------------------
+
+    def _client_hostname(self, ip):
+        """Best-effort reverse-DNS name for the connecting client."""
+        try:
+            return socket.gethostbyaddr(ip)[0]
+        except (socket.herror, socket.gaierror, OSError):
+            return ""
+
+    def _client_permitted(self):
+        """Gate every request through the GUI approval list. Denied clients
+        get a 404 (as if the site did not exist)."""
+        if not getattr(self.server, "require_client_approval", False):
+            return True
+        ip = self.client_address[0]
+        return self.server.access.check(ip, lambda: self._client_hostname(ip))
+
     # -- routing -------------------------------------------------------------
 
     def do_GET(self):
+        if not self._client_permitted():
+            self._send(404, "text/plain", b"Not found")
+            return
         if self.path in ("/", "/index.html"):
             self._send(200, "text/html; charset=utf-8", PAGE_HTML.encode("utf-8"))
         elif self.path == "/files":
@@ -213,6 +235,9 @@ class RefugeHandler(BaseHTTPRequestHandler):
             self._send(404, "text/plain", b"Not found")
 
     def do_POST(self):
+        if not self._client_permitted():
+            self._send(404, "text/plain", b"Not found")
+            return
         if self.path == "/delete":
             self._handle_delete()
             return
@@ -526,9 +551,11 @@ class UploadServer:
         self.config = config
         self._httpd = None
         self._thread = None
-        # The authorization code lives on the long-lived UploadServer (not the
-        # per-start httpd) so it survives a settings-driven server restart.
+        # The authorization code and client-approval decisions live on the
+        # long-lived UploadServer (not the per-start httpd) so they survive a
+        # settings-driven server restart.
         self.authcodes = AuthCodeManager(bus)
+        self.access = AccessControl(bus)
 
     @property
     def running(self):
@@ -552,6 +579,8 @@ class UploadServer:
         httpd.compress_to_zip = self.config.compress_to_zip
         httpd.allow_web_delete = self.config.allow_web_delete
         httpd.authcodes = self.authcodes
+        httpd.require_client_approval = self.config.require_client_approval
+        httpd.access = self.access
         httpd.names = _NameReservation()
         self._httpd = httpd
         self._thread = threading.Thread(
@@ -565,6 +594,8 @@ class UploadServer:
     def stop(self):
         if not self.running:
             return
+        # Release any worker threads parked waiting for an approval answer.
+        self.access.cancel_all()
         httpd, self._httpd = self._httpd, None
         httpd.shutdown()
         httpd.server_close()

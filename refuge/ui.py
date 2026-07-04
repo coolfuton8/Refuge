@@ -46,6 +46,8 @@ class RefugeApp:
         self.bytes_rescued = 0
         self.active_transfers = {}  # transfer id -> treeview item id
         self.net_state = None  # last state reported by the network monitor
+        self._prompt_queue = []  # pending client-approval popups (ip, hostname)
+        self._active_prompt = None
 
         self.root = tk.Tk()
         self.root.title(f"Refuge {__version__} - Emergency File Rescue")
@@ -236,6 +238,8 @@ class RefugeApp:
             "block_execution": tk.BooleanVar(value=self.config.block_execution),
             "compress_to_zip": tk.BooleanVar(value=self.config.compress_to_zip),
             "allow_web_delete": tk.BooleanVar(value=self.config.allow_web_delete),
+            "require_client_approval": tk.BooleanVar(
+                value=self.config.require_client_approval),
         }
 
         def row(index, label):
@@ -286,10 +290,15 @@ class RefugeApp:
                        "(uncheck to make saved files strictly read-only)",
             variable=self.vars["allow_web_delete"]).grid(
             row=8, column=1, sticky="w", pady=2)
+        ttk.Checkbutton(
+            form, text="Ask before admitting each new client (popup approval; "
+                       "denied clients get a 404)",
+            variable=self.vars["require_client_approval"]).grid(
+            row=9, column=1, sticky="w", pady=2)
 
         ttk.Button(form, text="Save settings", style="Accent.TButton",
                    command=self._save_settings).grid(
-            row=9, column=1, sticky="w", pady=(16, 0))
+            row=10, column=1, sticky="w", pady=(16, 0))
 
         if sys.platform == "win32":
             hint = ("Tip: if client machines cannot reach the upload page, allow the "
@@ -325,6 +334,7 @@ class RefugeApp:
             block_execution=self.vars["block_execution"].get(),
             compress_to_zip=self.vars["compress_to_zip"].get(),
             allow_web_delete=self.vars["allow_web_delete"].get(),
+            require_client_approval=self.vars["require_client_approval"].get(),
         )
         problems = candidate.validate()
         if problems:
@@ -340,7 +350,8 @@ class RefugeApp:
             candidate.dest_dir != self.config.dest_dir or
             candidate.block_execution != self.config.block_execution or
             candidate.compress_to_zip != self.config.compress_to_zip or
-            candidate.allow_web_delete != self.config.allow_web_delete)
+            candidate.allow_web_delete != self.config.allow_web_delete or
+            candidate.require_client_approval != self.config.require_client_approval)
         for field, value in vars(candidate).items():
             setattr(self.config, field, value)
         self.config.save()
@@ -453,6 +464,65 @@ class RefugeApp:
             self.code_hint.configure(
                 text="Type this on the web page to delete or overwrite a saved "
                      "file. Changes after each use.")
+
+    def _on_access_request(self, event):
+        self._prompt_queue.append((event.data["ip"], event.data.get("hostname", "")))
+        self._show_next_prompt()
+
+    def _show_next_prompt(self):
+        if self._active_prompt is not None or not self._prompt_queue:
+            return
+        ip, hostname = self._prompt_queue.pop(0)
+        who = f"{hostname} ({ip})" if hostname and hostname != ip else ip
+
+        dlg = tk.Toplevel(self.root)
+        self._active_prompt = dlg
+        dlg.title("Refuge - New connection")
+        dlg.configure(bg=PANEL)
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+
+        body = ttk.Frame(dlg, style="Panel.TFrame", padding=18)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="A new client wants to connect:",
+                  style="Panel.TLabel").pack(anchor="w")
+        tk.Label(body, text=who, bg=PANEL, fg=ACCENT,
+                 font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(4, 2))
+        ttk.Label(body, text="Allow this client to upload to and download from "
+                             "the rescue drive?", style="Muted.TLabel",
+                  wraplength=360, justify="left").pack(anchor="w", pady=(0, 10))
+
+        block_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(body, text="Always block this IP/client (until Refuge "
+                                   "is closed)", variable=block_var).pack(anchor="w")
+
+        buttons = ttk.Frame(body, style="Panel.TFrame")
+        buttons.pack(fill="x", pady=(14, 0))
+
+        def answer(allow):
+            always_block = block_var.get()
+            self.server.access.resolve(ip, allow, always_block=always_block)
+            self._active_prompt = None
+            dlg.destroy()
+            self._show_next_prompt()
+
+        ttk.Button(buttons, text="Deny",
+                   command=lambda: answer(False)).pack(side="right")
+        ttk.Button(buttons, text="Allow", style="Accent.TButton",
+                   command=lambda: answer(True)).pack(side="right", padx=(0, 8))
+        dlg.protocol("WM_DELETE_WINDOW", lambda: answer(False))
+
+        # Bring it to the operator's attention.
+        dlg.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - dlg.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - dlg.winfo_height()) // 3
+        dlg.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        dlg.lift()
+        dlg.attributes("-topmost", True)
+        try:
+            dlg.bell()
+        except tk.TclError:
+            pass
 
     def _on_server_state(self, event):
         running = event.data["running"]

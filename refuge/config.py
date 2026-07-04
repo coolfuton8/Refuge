@@ -21,6 +21,7 @@ class Config:
     block_execution: bool = True
     compress_to_zip: bool = False
     allow_web_delete: bool = True
+    require_client_approval: bool = True
 
     @classmethod
     def load(cls):
